@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agenda de Eventos</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- SheetJS (Excel) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <!-- Iconos Lucide -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="bg-brand-600 text-white p-2 rounded-xl shadow-md">
+          <i data-lucide="calendar" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-none">Agenda Master</h1>
+          <span class="text-xs text-slate-500 font-medium">Gestor de Cronogramas</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Indicador de Modo -->
+        <span id="badge-modo" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          Modo Lectura
+        </span>
+
+        <!-- Botón Descargar Excel -->
+        <button id="btn-export-excel" class="hidden sm:inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium transition shadow-sm border border-slate-200">
+          <i data-lucide="download" class="w-4 h-4 text-emerald-600"></i>
+          <span>Descargar Excel</span>
+        </button>
+
+        <!-- Botón de Login / Logout Admin -->
+        <button id="btn-auth-toggle" class="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white px-3.5 py-2 rounded-lg text-sm font-medium transition shadow-sm">
+          <i data-lucide="lock" class="w-4 h-4"></i>
+          <span id="txt-auth-btn">Acceso Admin</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-1">
+    
+    <!-- BARRA DE ACCIONES DE ADMIN (Visible solo en Modo Admin) -->
+    <div id="panel-admin-tools" class="hidden mb-6 bg-gradient-to-r from-indigo-50 via-white to-slate-50 border border-indigo-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-bold text-indigo-950 flex items-center gap-2">
+            <i data-lucide="shield-check" class="w-5 h-5 text-indigo-600"></i>
+            Herramientas de Administrador
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-600">Edita las duraciones inline y la agenda se recalculará automáticamente.</p>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Botón Agregar Bloque -->
+          <button id="btn-add-row" class="inline-flex items-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-300 px-3.5 py-2 rounded-xl text-sm font-medium transition shadow-sm">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            Nuevo Bloque
+          </button>
+          
+          <!-- Botón Guardar Cambios en Servidor -->
+          <button id="btn-save-db" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition shadow-sm">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            Guardar Cambios
+          </button>
+        </div>
+      </div>
+
+      <!-- ZONA DRAG & DROP EXCEL -->
+      <div id="drop-zone" class="mt-4 border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-white/70 hover:bg-white rounded-xl p-5 text-center cursor-pointer transition">
+        <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
+        <div class="flex flex-col items-center justify-center gap-2 pointer-events-none">
+          <i data-lucide="file-spreadsheet" class="w-8 h-8 text-indigo-500"></i>
+          <p class="text-sm font-semibold text-slate-700">Arrastra tu archivo Excel aquí o <span class="text-indigo-600 underline">haz clic para examinar</span></p>
+          <p class="text-xs text-slate-500">Columnas requeridas: INICIO, DURACIÓN, FINAL, TEMA, DETALLE, RESPONSABLE, NOTAS</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PESTAÑAS DE DÍAS -->
+    <div class="flex items-center justify-between border-b border-slate-200 pb-3 mb-6">
+      <div class="flex items-center gap-2 overflow-x-auto py-1 scrollbar-none" id="tabs-container">
+        <!-- Render dinámico de pestañas: Día 1, Día 2, Día 3... -->
+      </div>
+
+      <!-- Botón Exportar Móvil -->
+      <button id="btn-export-excel-mobile" class="sm:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200" title="Descargar Excel">
+        <i data-lucide="download" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- CONTENEDOR DE LA AGENDA (TIMELINE Y SIMULTÁNEOS) -->
+    <div id="agenda-container" class="space-y-4">
+      <!-- Los eventos se inyectan dinámicamente mediante app.js -->
+    </div>
+
+  </main>
+
+  <!-- MODAL DE LOGIN ADMIN (Supabase Auth) -->
+  <div id="modal-login" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white w-full max-w-md rounded-2xl p-6 sm:p-8 shadow-2xl border border-slate-100 relative">
+      <button id="btn-close-modal" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <div class="text-center mb-6">
+        <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="lock" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-xl font-bold text-slate-900">Acceso de Administrador</h3>
+        <p class="text-xs text-slate-500 mt-1">Inicia sesión con tu cuenta de Supabase o modo local</p>
+      </div>
+
+      <form id="form-login" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Correo Electrónico</label>
+          <input type="email" id="login-email" required placeholder="admin@ejemplo.com" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Contraseña</label>
+          <input type="password" id="login-password" required placeholder="••••••••" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+        </div>
+
+        <div id="login-error-msg" class="hidden text-xs text-rose-600 font-medium p-2.5 bg-rose-50 rounded-lg border border-rose-200"></div>
+
+        <button type="submit" id="btn-submit-login" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 rounded-xl text-sm transition shadow-sm flex items-center justify-center gap-2">
+          <span>Entrar al Panel</span>
+        </button>
+
+        <!-- Acceso Rápido de Prueba si no hay Supabase configurado -->
+        <button type="button" id="btn-login-demo" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded-xl text-xs transition">
+          Entrar como Demo Admin (Sin Supabase)
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICACIÓN -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm">
+    <i id="toast-icon" data-lucide="info" class="w-5 h-5 text-indigo-400"></i>
+    <span id="toast-text">Mensaje</span>
+  </div>
+
+  <!-- SCRIPTS MODULARES -->
+  <script src="js/supabase-config.js"></script>
+  <script src="js/time-calc.js"></script>
+  <script src="js/excel-handler.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
