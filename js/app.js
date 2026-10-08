@@ -1,8 +1,9 @@
 /**
- * js/app.js
- * Controlador Maestro de Agenda, Días Dinámicos, Categorías, Búsqueda y En Vivo
+ * js/app.js - ARCHIVO COMPLETO Y CORREGIDO
+ * Controlador Maestro con Protección contra Errores
  */
 
+// 1. SISTEMA DE DIÁLOGOS ESTILIZADOS
 const AppDialog = {
   confirm({ title = "¿Confirmar acción?", message = "", confirmText = "Confirmar", cancelText = "Cancelar", type = "danger" }) {
     return new Promise((resolve) => {
@@ -15,41 +16,49 @@ const AppDialog = {
       const iconBox = document.getElementById('dialog-icon-box');
       const icon = document.getElementById('dialog-icon');
 
-      titleEl.innerText = title;
-      msgEl.innerText = message;
-      btnConfirm.innerText = confirmText;
-      btnCancel.innerText = cancelText;
-
-      if (type === 'danger') {
-        iconBox.className = "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-rose-100 text-rose-600";
-        icon.setAttribute('data-lucide', 'trash-2');
-        btnConfirm.className = "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition shadow-sm";
-      } else {
-        iconBox.className = "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600";
-        icon.setAttribute('data-lucide', 'help-circle');
-        btnConfirm.className = "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-sm";
+      if (!modal) {
+        resolve(confirm(message));
+        return;
       }
 
-      if (window.lucide) lucide.createIcons();
+      if (titleEl) titleEl.innerText = title;
+      if (msgEl) msgEl.innerText = message;
+      if (btnConfirm) btnConfirm.innerText = confirmText;
+      if (btnCancel) {
+        btnCancel.innerText = cancelText;
+        btnCancel.style.display = 'inline-block';
+      }
 
-      btnCancel.style.display = 'inline-block';
+      if (iconBox && icon) {
+        if (type === 'danger') {
+          iconBox.className = "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-rose-100 text-rose-600";
+          icon.setAttribute('data-lucide', 'trash-2');
+          if (btnConfirm) btnConfirm.className = "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition shadow-sm";
+        } else {
+          iconBox.className = "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600";
+          icon.setAttribute('data-lucide', 'help-circle');
+          if (btnConfirm) btnConfirm.className = "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-sm";
+        }
+        if (window.lucide) lucide.createIcons();
+      }
+
       modal.classList.remove('hidden');
       setTimeout(() => {
         modal.classList.remove('opacity-0');
-        card.classList.remove('scale-95');
+        if (card) card.classList.remove('scale-95');
       }, 10);
 
       const closeDialog = (result) => {
         modal.classList.add('opacity-0');
-        card.classList.add('scale-95');
+        if (card) card.classList.add('scale-95');
         setTimeout(() => {
           modal.classList.add('hidden');
           resolve(result);
         }, 200);
       };
 
-      btnConfirm.onclick = () => closeDialog(true);
-      btnCancel.onclick = () => closeDialog(false);
+      if (btnConfirm) btnConfirm.onclick = () => closeDialog(true);
+      if (btnCancel) btnCancel.onclick = () => closeDialog(false);
     });
   },
 
@@ -64,44 +73,56 @@ const AppDialog = {
       const iconBox = document.getElementById('dialog-icon-box');
       const icon = document.getElementById('dialog-icon');
 
-      titleEl.innerText = title;
-      msgEl.innerText = message;
-      btnConfirm.innerText = buttonText;
-      btnCancel.style.display = 'none';
+      if (!modal) {
+        alert(message);
+        resolve(true);
+        return;
+      }
 
-      iconBox.className = type === 'error' 
-        ? "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-rose-100 text-rose-600"
-        : "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600";
-      icon.setAttribute('data-lucide', type === 'error' ? 'alert-circle' : 'info');
-      btnConfirm.className = type === 'error'
-        ? "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition"
-        : "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition";
+      if (titleEl) titleEl.innerText = title;
+      if (msgEl) msgEl.innerText = message;
+      if (btnConfirm) btnConfirm.innerText = buttonText;
+      if (btnCancel) btnCancel.style.display = 'none';
 
-      if (window.lucide) lucide.createIcons();
+      if (iconBox && icon) {
+        iconBox.className = type === 'error'
+          ? "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-rose-100 text-rose-600"
+          : "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600";
+        icon.setAttribute('data-lucide', type === 'error' ? 'alert-circle' : 'info');
+        if (btnConfirm) {
+          btnConfirm.className = type === 'error'
+            ? "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition"
+            : "px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition";
+        }
+        if (window.lucide) lucide.createIcons();
+      }
 
       modal.classList.remove('hidden');
       setTimeout(() => {
         modal.classList.remove('opacity-0');
-        card.classList.remove('scale-95');
+        if (card) card.classList.remove('scale-95');
       }, 10);
 
-      btnConfirm.onclick = () => {
-        modal.classList.add('opacity-0');
-        card.classList.add('scale-95');
-        setTimeout(() => {
-          modal.classList.add('hidden');
-          resolve(true);
-        }, 200);
-      };
+      if (btnConfirm) {
+        btnConfirm.onclick = () => {
+          modal.classList.add('opacity-0');
+          if (card) card.classList.add('scale-95');
+          setTimeout(() => {
+            modal.classList.add('hidden');
+            resolve(true);
+          }, 200);
+        };
+      }
     });
   }
 };
 
+// 2. ESTADO GLOBAL DE LA APLICACIÓN
 const AppState = {
   dias: [
-    { id: 'dia-1', nombre: 'Jueves 22 (Día 1)', orden: 1 },
-    { id: 'dia-2', nombre: 'Viernes 23 (Día 2)', orden: 2 },
-    { id: 'dia-3', nombre: 'Sábado 24 (Día 3)', orden: 3 },
+    { id: 'dia-1', nombre: 'Día 1', orden: 1 },
+    { id: 'dia-2', nombre: 'Día 2', orden: 2 },
+    { id: 'dia-3', nombre: 'Día 3', orden: 3 },
   ],
   diaActivoId: 'dia-1',
   filtroTexto: '',
@@ -109,9 +130,9 @@ const AppState = {
     'dia-1': [
       { id: 'e1', dia_id: 'dia-1', hora_inicio: '07:00', duracion_minutos: 30, hora_fin: '07:30', tema: 'Apertura del Registro', detalle: 'Disponible de 12:00am a 4:00pm', responsable: 'Staff Herbalife', notas: 'Lugar Centro de Negocio', categoria: 'normal', orden: 1 },
       { id: 'e2', dia_id: 'dia-1', hora_inicio: '07:00', duracion_minutos: 30, hora_fin: '07:30', tema: 'Reunión de organizadores', detalle: 'Briefing con comité', responsable: 'Dirección', notas: 'Salón VIP', categoria: 'normal', orden: 2 },
-      { id: 'e3', dia_id: 'dia-1', hora_inicio: '07:30', duracion_minutos: 60, hora_fin: '08:30', tema: 'Audiovisuales', detalle: 'Instalación y Pruebas técnicas', responsable: 'Sistemas', notas: 'Prueba de sonido', categoria: 'tecnico', orden: 3 },
+      { id: 'e3', dia_id: 'dia-1', hora_inicio: '07:30', duracion_minutos: 60, hora_fin: '08:30', tema: 'Audiovisuales', detalle: 'Instalación y Pruebas técnicas', responsable: 'Sistemas', notas: 'Revisión técnica', categoria: 'tecnico', orden: 3 },
       { id: 'e4', dia_id: 'dia-1', hora_inicio: '08:30', duracion_minutos: 5, hora_fin: '08:35', tema: 'Videos Rotativos', detalle: 'Proyección continua', responsable: 'Sistemas', notas: '', categoria: 'video', orden: 4 },
-      { id: 'e5', dia_id: 'dia-1', hora_inicio: '08:35', duracion_minutos: 20, hora_fin: '08:55', tema: 'Apertura de puertas', detalle: 'Ingreso de miembros del Equipo del Presidente', responsable: 'Gregorio B / Juan F', notas: 'CDN Auditorio', categoria: 'especial', orden: 5 }
+      { id: 'e5', dia_id: 'dia-1', hora_inicio: '08:35', duracion_minutos: 20, hora_fin: '08:55', tema: 'Apertura de puertas', detalle: 'Ingreso miembros de Presidencia', responsable: 'Gregorio B / Juan F', notas: 'CDN Auditorio', categoria: 'especial', orden: 5 }
     ],
     'dia-2': [],
     'dia-3': []
@@ -128,32 +149,45 @@ const CATEGORIA_STYLES = {
   receso: { bg: 'bg-blue-50/40', border: 'border-blue-300', tag: 'Receso / Coffee', badgeBg: 'bg-blue-100 text-blue-800' }
 };
 
+// 3. INICIALIZACIÓN PROTEGIDA
 document.addEventListener('DOMContentLoaded', async () => {
-  if (window.lucide) lucide.createIcons();
+  try {
+    if (window.lucide) lucide.createIcons();
 
-  iniciarRelojEnVivo();
-  await AuthManager.init();
-  AppState.isAdmin = AuthManager.isAdmin;
-  actualizarModoUI();
+    iniciarRelojEnVivo();
 
-  await cargarDatosDeSupabase();
+    if (window.AuthManager) {
+      await AuthManager.init();
+      AppState.isAdmin = AuthManager.isAdmin;
+    }
 
-  renderTabs();
-  renderAgenda();
-  setupEventListeners();
+    actualizarModoUI();
+
+    await cargarDatosDeSupabase();
+
+    renderTabs();
+    renderAgenda();
+    setupEventListeners();
+  } catch (error) {
+    console.error("Error durante inicialización:", error);
+    // Renderizado forzado de emergencia para que la app nunca se quede en blanco
+    renderTabs();
+    renderAgenda();
+  }
 });
 
-// RELOJ EN VIVO
+// RELOJ EN TIEMPO REAL
 function iniciarRelojEnVivo() {
   const clockEl = document.getElementById('live-clock');
   const updateClock = () => {
+    if (!clockEl) return;
     const now = new Date();
     clockEl.innerText = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
   updateClock();
   setInterval(updateClock, 1000);
 
-  // Cada 30 segundos refrescar el indicador "EN CURSO"
+  // Refrescar cada 30 seg para actualizar actividades en curso
   setInterval(() => {
     renderAgenda();
   }, 30000);
@@ -161,7 +195,7 @@ function iniciarRelojEnVivo() {
 
 // SUPABASE
 async function cargarDatosDeSupabase() {
-  if (!supabaseClient) return;
+  if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
   try {
     const { data: diasDb } = await supabaseClient.from('dias').select('*').order('orden', { ascending: true });
     if (diasDb && diasDb.length > 0) {
@@ -183,7 +217,7 @@ async function cargarDatosDeSupabase() {
 
 async function guardarCambiosEnSupabase() {
   const eventosActuales = AppState.eventosPorDia[AppState.diaActivoId] || [];
-  if (!supabaseClient) {
+  if (typeof supabaseClient === 'undefined' || !supabaseClient) {
     showToast("Cambios guardados en memoria local", "success");
     return;
   }
@@ -207,13 +241,14 @@ async function guardarCambiosEnSupabase() {
     }
     showToast("¡Agenda sincronizada exitosamente!", "success");
   } catch (err) {
-    await AppDialog.alert({ title: "Error", message: err.message, type: "error" });
+    await AppDialog.alert({ title: "Error al guardar", message: err.message, type: "error" });
   }
 }
 
-// GESTIÓN DINÁMICA DE DÍAS (Agregar, Renombrar, Eliminar)
+// RENDER PESTAÑAS DE DÍAS
 function renderTabs() {
   const container = document.getElementById('tabs-container');
+  if (!container) return;
   container.innerHTML = '';
 
   AppState.dias.forEach(dia => {
@@ -236,7 +271,6 @@ function renderTabs() {
 
     tabWrapper.appendChild(btn);
 
-    // Opciones de renombrar/eliminar día para Admin
     if (isActive && AppState.isAdmin) {
       const btnRename = document.createElement('button');
       btnRename.className = "ml-1 p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100";
@@ -258,7 +292,6 @@ function renderTabs() {
     container.appendChild(tabWrapper);
   });
 
-  // Botón "+" para agregar nuevo día (solo admin)
   if (AppState.isAdmin) {
     const btnAddDay = document.createElement('button');
     btnAddDay.className = "px-3 py-2 rounded-xl font-semibold text-xs text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition flex items-center gap-1";
@@ -279,7 +312,7 @@ async function agregarNuevoDia() {
   AppState.eventosPorDia[nuevoId] = [];
   AppState.diaActivoId = nuevoId;
 
-  if (supabaseClient) {
+  if (typeof supabaseClient !== 'undefined' && supabaseClient) {
     try {
       await supabaseClient.from('dias').insert([nuevoDia]);
     } catch (e) { console.error(e); }
@@ -292,10 +325,11 @@ async function agregarNuevoDia() {
 
 async function renombrarDia(diaId) {
   const dia = AppState.dias.find(d => d.id === diaId);
+  if (!dia) return;
   const nuevoNombre = prompt("Escribe el nuevo nombre del día:", dia.nombre);
   if (nuevoNombre && nuevoNombre.trim() !== "") {
     dia.nombre = nuevoNombre.trim();
-    if (supabaseClient) {
+    if (typeof supabaseClient !== 'undefined' && supabaseClient) {
       await supabaseClient.from('dias').update({ nombre: dia.nombre }).eq('id', diaId);
     }
     renderTabs();
@@ -305,6 +339,7 @@ async function renombrarDia(diaId) {
 
 async function eliminarDia(diaId) {
   const dia = AppState.dias.find(d => d.id === diaId);
+  if (!dia) return;
   const confirmar = await AppDialog.confirm({
     title: "¿Eliminar este día?",
     message: `Se eliminarán todas las actividades asociadas a "${dia.nombre}".`,
@@ -316,7 +351,7 @@ async function eliminarDia(diaId) {
     AppState.dias = AppState.dias.filter(d => d.id !== diaId);
     delete AppState.eventosPorDia[diaId];
     AppState.diaActivoId = AppState.dias[0].id;
-    if (supabaseClient) {
+    if (typeof supabaseClient !== 'undefined' && supabaseClient) {
       await supabaseClient.from('dias').delete().eq('id', diaId);
     }
     renderTabs();
@@ -328,11 +363,11 @@ async function eliminarDia(diaId) {
 // RENDER DE LA AGENDA
 function renderAgenda() {
   const container = document.getElementById('agenda-container');
+  if (!container) return;
   container.innerHTML = '';
 
   let eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
 
-  // FILTRADO EN VIVO
   if (AppState.filtroTexto.trim() !== '') {
     const q = AppState.filtroTexto.toLowerCase();
     eventos = eventos.filter(e => 
@@ -348,7 +383,7 @@ function renderAgenda() {
       <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
         <i data-lucide="calendar-x" class="w-12 h-12 text-slate-300 mx-auto mb-3"></i>
         <h4 class="text-base font-semibold text-slate-700">No se encontraron actividades</h4>
-        <p class="text-xs text-slate-400 mt-1">Verifica el filtro de búsqueda o agrega un nuevo bloque.</p>
+        <p class="text-xs text-slate-400 mt-1">Verifica el filtro de búsqueda o arrastra tu archivo Excel.</p>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -369,8 +404,13 @@ function renderAgenda() {
   grupos.forEach(grupo => {
     const esSimultaneo = grupo.items.length > 1;
 
-    // Detectar si alguna actividad de este grupo está "EN CURSO" ahora mismo
-    const algunoEnCurso = grupo.items.some(ev => TimeCalc.isNowInRange(ev.hora_inicio, ev.hora_fin));
+    // Detectar si está en curso (de forma segura)
+    const algunoEnCurso = grupo.items.some(ev => {
+      if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.isNowInRange === 'function') {
+        return TimeCalc.isNowInRange(ev.hora_inicio, ev.hora_fin);
+      }
+      return false;
+    });
 
     const rowEl = document.createElement('div');
     rowEl.className = `flex flex-col md:flex-row gap-4 items-start p-4 sm:p-5 rounded-2xl border transition shadow-sm ${
@@ -431,7 +471,6 @@ function renderAgenda() {
               <span class="text-slate-500 font-semibold">Fin:</span>
               <span class="font-bold text-slate-700">${ev.hora_fin}</span>
             </div>
-            <!-- Selector de Categoría / Color -->
             <select class="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-700 focus:outline-none" onchange="actualizarCampo('${ev.id}', 'categoria', this.value); renderAgenda();">
               <option value="normal" ${ev.categoria === 'normal' ? 'selected' : ''}>⚪ General</option>
               <option value="video" ${ev.categoria === 'video' ? 'selected' : ''}>🟢 Video / Audio</option>
@@ -492,25 +531,30 @@ function renderAgenda() {
   if (window.lucide) lucide.createIcons();
 }
 
-// DESPLAZAMIENTO DE EMERGENCIA (± MINUTOS)
+// DESPLAZAR TIEMPOS
 window.desplazarTiempos = function(minutos) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   if (eventos.length === 0) return;
 
-  AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.shiftAll(eventos, minutos);
+  if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.shiftAll === 'function') {
+    AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.shiftAll(eventos, minutos);
+  }
   renderAgenda();
-  document.getElementById('modal-shift').classList.add('hidden');
-  showToast(`Agenda ajustada: ${minutos > 0 ? '+' : ''}${minutos} minutos`, "info");
+  const modalShift = document.getElementById('modal-shift');
+  if (modalShift) modalShift.classList.add('hidden');
+  showToast(`Agenda ajustada: ${minutos > 0 ? '+' : ''}${minutos} min`, "info");
 };
 
-// CASCADA AL EDITAR DURACIÓN
+// CASCADA
 window.cambiarDuracionCascada = function(eventoId, nuevaDuracion) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   const evento = eventos.find(e => e.id === eventoId);
   if (!evento) return;
 
   evento.duracion_minutos = Math.max(1, parseInt(nuevaDuracion, 10) || 5);
-  AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos);
+  if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.recalculateCascade === 'function') {
+    AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos);
+  }
   renderAgenda();
   showToast("Horarios recalculados en cascada", "info");
 };
@@ -528,7 +572,7 @@ window.confirmarEliminarEvento = async function(eventoId) {
 
   const confirmado = await AppDialog.confirm({
     title: "Eliminar Actividad",
-    message: `¿Estás seguro de que deseas eliminar ${nombre}? Los bloques siguientes se reajustarán automáticamente.`,
+    message: `¿Estás seguro de que deseas eliminar ${nombre}?`,
     confirmText: "Sí, eliminar",
     cancelText: "Conservar",
     type: "danger"
@@ -536,7 +580,11 @@ window.confirmarEliminarEvento = async function(eventoId) {
 
   if (confirmado) {
     let actualizados = eventos.filter(e => e.id !== eventoId);
-    AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(actualizados);
+    if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.recalculateCascade === 'function') {
+      AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(actualizados);
+    } else {
+      AppState.eventosPorDia[AppState.diaActivoId] = actualizados;
+    }
     renderAgenda();
     showToast("Bloque eliminado", "info");
   }
@@ -546,12 +594,17 @@ function agregarNuevoBloque() {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   let horaInicio = eventos.length > 0 ? eventos[eventos.length - 1].hora_fin : "08:00";
 
+  let fin = "08:30";
+  if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.timeToMinutes === 'function') {
+    fin = TimeCalc.minutesToTime(TimeCalc.timeToMinutes(horaInicio) + 30);
+  }
+
   const nuevo = {
     id: 'local_' + Date.now(),
     dia_id: AppState.diaActivoId,
     hora_inicio: horaInicio,
     duracion_minutos: 30,
-    hora_fin: TimeCalc.minutesToTime(TimeCalc.timeToMinutes(horaInicio) + 30),
+    hora_fin: fin,
     tema: 'Nueva Actividad',
     detalle: '',
     responsable: '',
@@ -571,19 +624,27 @@ function actualizarModoUI() {
   const panelAdmin = document.getElementById('panel-admin-tools');
   const txtAuthBtn = document.getElementById('txt-auth-btn');
 
-  if (AppState.isAdmin) {
-    badgeModo.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200";
-    badgeModo.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-600"></span> Modo Admin Activo`;
-    panelAdmin.classList.remove('hidden');
-    txtAuthBtn.innerText = "Cerrar Sesión";
-  } else {
-    badgeModo.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200";
-    badgeModo.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Modo Lectura`;
-    panelAdmin.classList.add('hidden');
-    txtAuthBtn.innerText = "Acceso Admin";
+  if (badgeModo) {
+    if (AppState.isAdmin) {
+      badgeModo.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200";
+      badgeModo.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-600"></span> Modo Admin Activo`;
+    } else {
+      badgeModo.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200";
+      badgeModo.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Modo Lectura`;
+    }
+  }
+
+  if (panelAdmin) {
+    if (AppState.isAdmin) panelAdmin.classList.remove('hidden');
+    else panelAdmin.classList.add('hidden');
+  }
+
+  if (txtAuthBtn) {
+    txtAuthBtn.innerText = AppState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
   }
 }
 
+// 4. LISTENERS DE EVENTOS Y MULTI-HOJA
 function setupEventListeners() {
   const modalLogin = document.getElementById('modal-login');
   const btnAuthToggle = document.getElementById('btn-auth-toggle');
@@ -591,95 +652,127 @@ function setupEventListeners() {
   const formLogin = document.getElementById('form-login');
   const btnDemoLogin = document.getElementById('btn-login-demo');
 
-  btnAuthToggle.onclick = async () => {
-    if (AppState.isAdmin) {
-      await AuthManager.logout();
-      AppState.isAdmin = false;
-      actualizarModoUI();
-      renderTabs();
-      renderAgenda();
-      showToast("Sesión cerrada", "info");
-    } else {
-      modalLogin.classList.remove('hidden');
-    }
-  };
+  if (btnAuthToggle) {
+    btnAuthToggle.onclick = async () => {
+      if (AppState.isAdmin) {
+        if (window.AuthManager) await AuthManager.logout();
+        AppState.isAdmin = false;
+        actualizarModoUI();
+        renderTabs();
+        renderAgenda();
+        showToast("Sesión cerrada", "info");
+      } else if (modalLogin) {
+        modalLogin.classList.remove('hidden');
+      }
+    };
+  }
 
-  btnCloseModal.onclick = () => modalLogin.classList.add('hidden');
+  if (btnCloseModal && modalLogin) {
+    btnCloseModal.onclick = () => modalLogin.classList.add('hidden');
+  }
 
-  formLogin.onsubmit = async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('login-email').value;
-    const pass = document.getElementById('login-password').value;
-    const errorBox = document.getElementById('login-error-msg');
-    try {
-      errorBox.classList.add('hidden');
-      await AuthManager.login(email, pass);
+  if (formLogin) {
+    formLogin.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('login-email')?.value;
+      const pass = document.getElementById('login-password')?.value;
+      const errorBox = document.getElementById('login-error-msg');
+      try {
+        if (errorBox) errorBox.classList.add('hidden');
+        if (window.AuthManager) await AuthManager.login(email, pass);
+        AppState.isAdmin = true;
+        if (modalLogin) modalLogin.classList.add('hidden');
+        actualizarModoUI();
+        renderTabs();
+        renderAgenda();
+        showToast("¡Bienvenido, Administrador!", "success");
+      } catch (err) {
+        if (errorBox) {
+          errorBox.innerText = err.message || "Credenciales incorrectas.";
+          errorBox.classList.remove('hidden');
+        }
+      }
+    };
+  }
+
+  if (btnDemoLogin) {
+    btnDemoLogin.onclick = async () => {
+      if (window.AuthManager) await AuthManager.login('demo@admin.com', '123456');
       AppState.isAdmin = true;
-      modalLogin.classList.add('hidden');
+      if (modalLogin) modalLogin.classList.add('hidden');
       actualizarModoUI();
       renderTabs();
       renderAgenda();
-      showToast("¡Bienvenido, Administrador!", "success");
-    } catch (err) {
-      errorBox.innerText = err.message || "Credenciales incorrectas.";
-      errorBox.classList.remove('hidden');
-    }
-  };
+      showToast("Modo Administrador activado", "success");
+    };
+  }
 
-  btnDemoLogin.onclick = async () => {
-    await AuthManager.login('demo@admin.com', '123456');
-    AppState.isAdmin = true;
-    modalLogin.classList.add('hidden');
-    actualizarModoUI();
-    renderTabs();
-    renderAgenda();
-    showToast("Modo Administrador activado", "success");
-  };
-
-  // Botón Emergencia de Ajuste
+  // Ajuste de Tiempo
+  const btnShift = document.getElementById('btn-shift-time');
   const modalShift = document.getElementById('modal-shift');
-  document.getElementById('btn-shift-time').onclick = () => modalShift.classList.remove('hidden');
-  document.getElementById('btn-close-shift').onclick = () => modalShift.classList.add('hidden');
+  const btnCloseShift = document.getElementById('btn-close-shift');
+  if (btnShift && modalShift) btnShift.onclick = () => modalShift.classList.remove('hidden');
+  if (btnCloseShift && modalShift) btnCloseShift.onclick = () => modalShift.classList.add('hidden');
 
-  // Buscador en Vivo
+  // Buscador
   const inputSearch = document.getElementById('input-search');
   const btnClearSearch = document.getElementById('btn-clear-search');
-  inputSearch.addEventListener('input', (e) => {
-    AppState.filtroTexto = e.target.value;
-    if (AppState.filtroTexto) btnClearSearch.classList.remove('hidden');
-    else btnClearSearch.classList.add('hidden');
-    renderAgenda();
-  });
-  btnClearSearch.onclick = () => {
-    inputSearch.value = '';
-    AppState.filtroTexto = '';
-    btnClearSearch.classList.add('hidden');
-    renderAgenda();
-  };
+  if (inputSearch) {
+    inputSearch.addEventListener('input', (e) => {
+      AppState.filtroTexto = e.target.value;
+      if (btnClearSearch) {
+        if (AppState.filtroTexto) btnClearSearch.classList.remove('hidden');
+        else btnClearSearch.classList.add('hidden');
+      }
+      renderAgenda();
+    });
+  }
+  if (btnClearSearch && inputSearch) {
+    btnClearSearch.onclick = () => {
+      inputSearch.value = '';
+      AppState.filtroTexto = '';
+      btnClearSearch.classList.add('hidden');
+      renderAgenda();
+    };
+  }
 
-  document.getElementById('btn-add-row').onclick = agregarNuevoBloque;
-  document.getElementById('btn-save-db').onclick = guardarCambiosEnSupabase;
+  const btnAddRow = document.getElementById('btn-add-row');
+  if (btnAddRow) btnAddRow.onclick = agregarNuevoBloque;
 
-  // EXPORTAR TODAS LAS PESTAÑAS (Dia 1, Dia 2, Dia 3) EN UN SOLO ARCHIVO EXCEL
-  const triggerExport = async () => {
-    showToast("Generando Excel completo con todas las pestañas...", "info");
-    await ExcelHandler.exportAllDaysToExcel(AppState.dias, AppState.eventosPorDia);
-    showToast("¡Archivo Excel descargado con éxito!", "success");
-  };
-  document.getElementById('btn-export-excel').onclick = triggerExport;
+  const btnSaveDb = document.getElementById('btn-save-db');
+  if (btnSaveDb) btnSaveDb.onclick = guardarCambiosEnSupabase;
 
-  // LÓGICA DE IMPORTACIÓN MULTI-HOJA (Dia 1, Dia 2, Dia 3)
-  const procesarArchivoExcelMultiHoja = async (file) => {
+  // Exportar Excel
+  const btnExport = document.getElementById('btn-export-excel');
+  if (btnExport) {
+    btnExport.onclick = async () => {
+      showToast("Generando Excel completo con todas las pestañas...", "info");
+      if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.exportAllDaysToExcel === 'function') {
+        await ExcelHandler.exportAllDaysToExcel(AppState.dias, AppState.eventosPorDia);
+      }
+      showToast("¡Archivo Excel descargado con éxito!", "success");
+    };
+  }
+
+  // IMPORTACIÓN MULTI-HOJA
+  const procesarArchivoExcel = async (file) => {
     if (!file) return;
     try {
       showToast("Analizando hojas del archivo Excel...", "info");
-      const hojasResultado = await ExcelHandler.parseExcelWorkbook(file);
-      const nombresHojas = Object.keys(hojasResultado);
+      
+      let hojasResultado = {};
+      if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.parseExcelWorkbook === 'function') {
+        hojasResultado = await ExcelHandler.parseExcelWorkbook(file);
+      } else if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.parseExcelFile === 'function') {
+        const single = await ExcelHandler.parseExcelFile(file);
+        hojasResultado['Dia 1'] = single;
+      }
 
+      const nombresHojas = Object.keys(hojasResultado);
       if (nombresHojas.length === 0) {
         await AppDialog.alert({
           title: "Sin datos encontrados",
-          message: "No se encontraron filas con encabezados 'INICIO' y 'TEMA' en las hojas Dia 1, Dia 2 o Dia 3.",
+          message: "No se encontraron filas con encabezados 'INICIO' y 'TEMA' en las hojas.",
           type: "error"
         });
         return;
@@ -687,20 +780,17 @@ function setupEventListeners() {
 
       let resumen = [];
 
-      // Vincular cada hoja encontrada con su día correspondiente en AppState
       nombresHojas.forEach(nombreHoja => {
         const eventosHoja = hojasResultado[nombreHoja];
         const numMatch = nombreHoja.match(/\d+/);
         const numeroDia = numMatch ? parseInt(numMatch[0], 10) : null;
 
-        // Buscar día existente o crearlo
         let diaDestino = null;
         if (numeroDia) {
           diaDestino = AppState.dias.find(d => d.orden === numeroDia || d.nombre.includes(`${numeroDia}`));
         }
 
         if (!diaDestino) {
-          // Si no existe, crear el día automáticamente
           const nuevoId = 'dia-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
           diaDestino = {
             id: nuevoId,
@@ -710,21 +800,18 @@ function setupEventListeners() {
           AppState.dias.push(diaDestino);
         }
 
-        // Asignar los eventos de esa hoja al día
         eventosHoja.forEach(ev => ev.dia_id = diaDestino.id);
         AppState.eventosPorDia[diaDestino.id] = eventosHoja;
-
         resumen.push(`${diaDestino.nombre}: ${eventosHoja.length} actividades`);
       });
 
-      // Posicionarse en el Día 1
       AppState.diaActivoId = AppState.dias[0].id;
       renderTabs();
       renderAgenda();
 
       await AppDialog.alert({
-        title: "¡Importación Multi-Día Exitosa!",
-        message: `Se cargaron correctamente las siguientes pestañas:\n\n• ${resumen.join('\n• ')}`,
+        title: "¡Importación Exitosa!",
+        message: `Se cargaron las siguientes pestañas:\n\n• ${resumen.join('\n• ')}`,
         type: "info"
       });
 
@@ -738,35 +825,47 @@ function setupEventListeners() {
     }
   };
 
-  // Drag & Drop
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('excel-file-input');
-  dropZone.onclick = () => fileInput.click();
 
-  ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-600', 'bg-indigo-50/50'); }));
-  ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.remove('border-indigo-600', 'bg-indigo-50/50'); }));
+  if (dropZone && fileInput) {
+    dropZone.onclick = () => fileInput.click();
 
-  dropZone.addEventListener('drop', (e) => {
-    const file = e.dataTransfer.files[0];
-    procesarArchivoExcelMultiHoja(file);
-  });
+    ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-600', 'bg-indigo-50/50'); }));
+    ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.remove('border-indigo-600', 'bg-indigo-50/50'); }));
 
-  fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    procesarArchivoExcelMultiHoja(file);
-    fileInput.value = '';
-  });
+    dropZone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer.files[0];
+      procesarArchivoExcel(file);
+    });
 
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      procesarArchivoExcel(file);
+      fileInput.value = '';
+    });
+  }
+}
+
+// TOAST NOTIFICADOR
 function showToast(mensaje, tipo = "info") {
   const toast = document.getElementById('toast');
   const toastText = document.getElementById('toast-text');
   const toastIcon = document.getElementById('toast-icon');
+
+  if (!toast || !toastText) return;
+
   toastText.innerText = mensaje;
-  toastIcon.setAttribute('data-lucide', tipo === 'success' ? 'check-circle-2' : (tipo === 'error' ? 'alert-circle' : 'info'));
-  toastIcon.className = `w-5 h-5 ${tipo === 'success' ? 'text-emerald-400' : (tipo === 'error' ? 'text-rose-400' : 'text-indigo-400')}`;
+  if (toastIcon) {
+    toastIcon.setAttribute('data-lucide', tipo === 'success' ? 'check-circle-2' : (tipo === 'error' ? 'alert-circle' : 'info'));
+    toastIcon.className = `w-5 h-5 ${tipo === 'success' ? 'text-emerald-400' : (tipo === 'error' ? 'text-rose-400' : 'text-indigo-400')}`;
+  }
   if (window.lucide) lucide.createIcons();
+
   toast.classList.remove('translate-y-20', 'opacity-0');
-  setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3500);
+  setTimeout(() => {
+    toast.classList.add('translate-y-20', 'opacity-0');
+  }, 3500);
 }
 
 function escapeHtml(string) {
