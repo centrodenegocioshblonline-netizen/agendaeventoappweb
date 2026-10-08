@@ -660,14 +660,83 @@ function setupEventListeners() {
   document.getElementById('btn-add-row').onclick = agregarNuevoBloque;
   document.getElementById('btn-save-db').onclick = guardarCambiosEnSupabase;
 
-  // Exportar Excel
-  const triggerExport = () => {
-    const diaActual = AppState.dias.find(d => d.id === AppState.diaActivoId);
-    const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
-    showToast("Generando Excel personalizado...", "info");
-    ExcelHandler.exportAgendaToExcel(diaActual ? diaActual.nombre : 'Agenda', eventos);
+  // EXPORTAR TODAS LAS PESTAÑAS (Dia 1, Dia 2, Dia 3) EN UN SOLO ARCHIVO EXCEL
+  const triggerExport = async () => {
+    showToast("Generando Excel completo con todas las pestañas...", "info");
+    await ExcelHandler.exportAllDaysToExcel(AppState.dias, AppState.eventosPorDia);
+    showToast("¡Archivo Excel descargado con éxito!", "success");
   };
   document.getElementById('btn-export-excel').onclick = triggerExport;
+
+  // LÓGICA DE IMPORTACIÓN MULTI-HOJA (Dia 1, Dia 2, Dia 3)
+  const procesarArchivoExcelMultiHoja = async (file) => {
+    if (!file) return;
+    try {
+      showToast("Analizando hojas del archivo Excel...", "info");
+      const hojasResultado = await ExcelHandler.parseExcelWorkbook(file);
+      const nombresHojas = Object.keys(hojasResultado);
+
+      if (nombresHojas.length === 0) {
+        await AppDialog.alert({
+          title: "Sin datos encontrados",
+          message: "No se encontraron filas con encabezados 'INICIO' y 'TEMA' en las hojas Dia 1, Dia 2 o Dia 3.",
+          type: "error"
+        });
+        return;
+      }
+
+      let resumen = [];
+
+      // Vincular cada hoja encontrada con su día correspondiente en AppState
+      nombresHojas.forEach(nombreHoja => {
+        const eventosHoja = hojasResultado[nombreHoja];
+        const numMatch = nombreHoja.match(/\d+/);
+        const numeroDia = numMatch ? parseInt(numMatch[0], 10) : null;
+
+        // Buscar día existente o crearlo
+        let diaDestino = null;
+        if (numeroDia) {
+          diaDestino = AppState.dias.find(d => d.orden === numeroDia || d.nombre.includes(`${numeroDia}`));
+        }
+
+        if (!diaDestino) {
+          // Si no existe, crear el día automáticamente
+          const nuevoId = 'dia-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+          diaDestino = {
+            id: nuevoId,
+            nombre: nombreHoja,
+            orden: AppState.dias.length + 1
+          };
+          AppState.dias.push(diaDestino);
+        }
+
+        // Asignar los eventos de esa hoja al día
+        eventosHoja.forEach(ev => ev.dia_id = diaDestino.id);
+        AppState.eventosPorDia[diaDestino.id] = eventosHoja;
+
+        resumen.push(`${diaDestino.nombre}: ${eventosHoja.length} actividades`);
+      });
+
+      // Posicionarse en el Día 1
+      AppState.diaActivoId = AppState.dias[0].id;
+      renderTabs();
+      renderAgenda();
+
+      await AppDialog.alert({
+        title: "¡Importación Multi-Día Exitosa!",
+        message: `Se cargaron correctamente las siguientes pestañas:\n\n• ${resumen.join('\n• ')}`,
+        type: "info"
+      });
+
+    } catch (err) {
+      console.error(err);
+      await AppDialog.alert({
+        title: "Error al leer Excel",
+        message: err.message || "Ocurrió un error al procesar el archivo.",
+        type: "error"
+      });
+    }
+  };
 
   // Drag & Drop
   const dropZone = document.getElementById('drop-zone');
@@ -677,27 +746,16 @@ function setupEventListeners() {
   ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-600', 'bg-indigo-50/50'); }));
   ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.remove('border-indigo-600', 'bg-indigo-50/50'); }));
 
-  dropZone.addEventListener('drop', async (e) => {
+  dropZone.addEventListener('drop', (e) => {
     const file = e.dataTransfer.files[0];
-    if (file) {
-      const cargados = await ExcelHandler.parseExcelFile(file);
-      AppState.eventosPorDia[AppState.diaActivoId] = cargados;
-      renderAgenda();
-      showToast(`¡Se importaron ${cargados.length} actividades!`, "success");
-    }
+    procesarArchivoExcelMultiHoja(file);
   });
 
-  fileInput.addEventListener('change', async (e) => {
+  fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const cargados = await ExcelHandler.parseExcelFile(file);
-      AppState.eventosPorDia[AppState.diaActivoId] = cargados;
-      renderAgenda();
-      showToast(`¡Se importaron ${cargados.length} actividades!`, "success");
-      fileInput.value = '';
-    }
+    procesarArchivoExcelMultiHoja(file);
+    fileInput.value = '';
   });
-}
 
 function showToast(mensaje, tipo = "info") {
   const toast = document.getElementById('toast');
