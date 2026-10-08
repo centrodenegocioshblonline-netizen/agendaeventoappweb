@@ -1,19 +1,13 @@
 /**
  * js/excel-handler.js
- * Importación Multi-Hoja (Dia 1, Dia 2, Dia 3) y Exportación Multi-Pestaña con ExcelJS
+ * Importador de Alta Precisión que respeta horas reales (7:00 a. m., etc.) y duraciones
  */
 
 const ExcelHandler = {
-  /**
-   * Normaliza textos quitando tildes y espacios extras
-   */
   normalizeText(txt) {
     return (txt || '').toString().trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   },
 
-  /**
-   * Lee un archivo Excel analizando todas sus hojas de cálculo (Dia 1, Dia 2, Dia 3...)
-   */
   async parseExcelWorkbook(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -21,91 +15,94 @@ const ExcelHandler = {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
+          // Leemos el libro con soporte de textos con formato visual
+          const workbook = XLSX.read(data, { type: 'array', cellDates: false });
 
           if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
             throw new Error("El archivo no contiene hojas de cálculo.");
           }
 
-          // Filtramos las hojas que correspondan a "Dia X" o "Día X"
+          // Buscar hojas con "Dia"
           const hojasDias = workbook.SheetNames.filter(name => {
             const norm = this.normalizeText(name);
             return norm.startsWith("DIA ") || norm === "DIA1" || norm === "DIA2" || norm === "DIA3";
           });
 
-          // Si no encuentra hojas con nombre "Dia X", toma todas las hojas disponibles o la primera
           const hojasAProcesar = hojasDias.length > 0 ? hojasDias : [workbook.SheetNames[0]];
-
-          const resultadoPorDia = {}; // { 'Dia 1': [...eventos], 'Dia 2': [...eventos] }
+          const resultadoPorDia = {};
 
           hojasAProcesar.forEach(sheetName => {
             const worksheet = workbook.Sheets[sheetName];
-            // Leemos como matriz bidimensional (fila por fila) para encontrar dónde están los encabezados reales
-            const rowsMatrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+            // raw: false obtiene los valores tal como se ven en pantalla (ej: "7:00 a. m.", "0:30")
+            const rowsMatrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
 
             if (!rowsMatrix || rowsMatrix.length === 0) return;
 
-            // 1. Encontrar la fila donde están 'INICIO' y 'TEMA' (en tu plantilla suele ser la Fila 5)
+            // 1. Localizar fila de encabezados ('INICIO' y 'TEMA')
             let headerRowIndex = -1;
-            let colIndexMap = { inicio: -1, duracion: -1, final: -1, tema: -1, detalle: -1, responsable: -1, notas: -1 };
+            let colMap = { inicio: -1, duracion: -1, final: -1, tema: -1, detalle: -1, responsable: -1, notas: -1 };
 
             for (let r = 0; r < Math.min(15, rowsMatrix.length); r++) {
               const row = rowsMatrix[r];
-              const normalizedCells = row.map(c => this.normalizeText(c));
+              const normCells = row.map(c => this.normalizeText(c));
 
-              const idxInicio = normalizedCells.findIndex(c => c === 'INICIO');
-              const idxTema = normalizedCells.findIndex(c => c === 'TEMA');
+              const idxInicio = normCells.findIndex(c => c === 'INICIO');
+              const idxTema = normCells.findIndex(c => c === 'TEMA');
 
               if (idxInicio !== -1 && idxTema !== -1) {
                 headerRowIndex = r;
-                colIndexMap.inicio = idxInicio;
-                colIndexMap.duracion = normalizedCells.findIndex(c => c.includes('DURAC'));
-                colIndexMap.final = normalizedCells.findIndex(c => c.includes('FINAL') || c.includes('FIN'));
-                colIndexMap.tema = idxTema;
-                colIndexMap.detalle = normalizedCells.findIndex(c => c.includes('DETALLE'));
-                colIndexMap.responsable = normalizedCells.findIndex(c => c.includes('RESPONSABLE'));
-                colIndexMap.notas = normalizedCells.findIndex(c => c.includes('NOTA'));
+                colMap.inicio = idxInicio;
+                colMap.duracion = normCells.findIndex(c => c.includes('DURAC'));
+                colMap.final = normCells.findIndex(c => c.includes('FINAL') || c.includes('FIN'));
+                colMap.tema = idxTema;
+                colMap.detalle = normCells.findIndex(c => c.includes('DETALLE'));
+                colMap.responsable = normCells.findIndex(c => c.includes('RESPONSABLE'));
+                colMap.notas = normCells.findIndex(c => c.includes('NOTA'));
                 break;
               }
             }
 
-            // Si no encontró cabecera con ese formato, saltamos esa hoja
             if (headerRowIndex === -1) return;
 
-            // 2. Extraer actividades a partir de la fila siguiente
+            // 2. Extraer actividades respetando sus horas reales
             const eventosHoja = [];
             for (let r = headerRowIndex + 1; r < rowsMatrix.length; r++) {
               const row = rowsMatrix[r];
               if (!row || row.length === 0) continue;
 
-              const valInicio = row[colIndexMap.inicio];
-              const valTema = row[colIndexMap.tema];
+              const rawInicio = row[colMap.inicio];
+              const rawTema = row[colMap.tema];
 
-              // Si la fila no tiene inicio ni tema, suele ser una fila en blanco o de cierre
-              if (!valInicio && !valTema) continue;
+              if (!rawInicio && !rawTema) continue;
 
-              const inicioStr = this.formatExcelTimeValue(valInicio);
-              const duracion = TimeCalc.parseDurationToMinutes(row[colIndexMap.duracion] || 30);
-              const finCalculado = TimeCalc.minutesToTime(TimeCalc.timeToMinutes(inicioStr) + duracion);
-              const finStr = colIndexMap.final !== -1 && row[colIndexMap.final] ? this.formatExcelTimeValue(row[colIndexMap.final]) : finCalculado;
-              const temaStr = (valTema || '').toString().trim();
-              const detalleStr = colIndexMap.detalle !== -1 ? (row[colIndexMap.detalle] || '').toString().trim() : '';
-              const respStr = colIndexMap.responsable !== -1 ? (row[colIndexMap.responsable] || '').toString().trim() : '';
-              const notasStr = colIndexMap.notas !== -1 ? (row[colIndexMap.notas] || '').toString().trim() : '';
+              const inicioStr = this.convertExcelTimeToHHMM(rawInicio);
+              const duracionMin = TimeCalc.parseDurationToMinutes(row[colMap.duracion]);
+              
+              let finStr = '';
+              if (colMap.final !== -1 && row[colMap.final]) {
+                finStr = this.convertExcelTimeToHHMM(row[colMap.final]);
+              } else {
+                finStr = TimeCalc.minutesToTime(TimeCalc.timeToMinutes(inicioStr) + duracionMin);
+              }
 
-              // Clasificar categoría para color
+              const temaStr = (rawTema || '').toString().trim();
+              const detalleStr = colMap.detalle !== -1 ? (row[colMap.detalle] || '').toString().trim() : '';
+              const respStr = colMap.responsable !== -1 ? (row[colMap.responsable] || '').toString().trim() : '';
+              const notasStr = colMap.notas !== -1 ? (row[colMap.notas] || '').toString().trim() : '';
+
+              // Clasificar categoría
               let categoria = 'normal';
               const t = temaStr.toUpperCase();
               if (t.includes('VIDEO') || t.includes('MUSICA') || t.includes('AUDIO') || t.includes('ROTATIVO')) categoria = 'video';
-              else if (duracion >= 50 || t.includes('TALLER') || t.includes('CH.C') || t.includes('SESION')) categoria = 'especial';
+              else if (duracionMin >= 50 || t.includes('TALLER') || t.includes('CH.C') || t.includes('SESION')) categoria = 'especial';
               else if (t.includes('COFFEE') || t.includes('ALMUERZO') || t.includes('RECESO')) categoria = 'receso';
               else if (t.includes('PRUEBA') || t.includes('INSTALACION') || t.includes('VOZ EN OFF')) categoria = 'tecnico';
 
               eventosHoja.push({
                 id: 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
                 hora_inicio: inicioStr,
-                _originalInicio: inicioStr,
-                duracion_minutos: duracion,
+                _originalInicio: inicioStr, // Conserva la hora original para detectar simultáneos reales
+                duracion_minutos: duracionMin,
                 hora_fin: finStr,
                 tema: temaStr,
                 detalle: detalleStr,
@@ -117,7 +114,8 @@ const ExcelHandler = {
             }
 
             if (eventosHoja.length > 0) {
-              resultadoPorDia[sheetName] = TimeCalc.recalculateCascade(eventosHoja);
+              // NO forzamos recálculo ciego: respetamos los horarios exactos del Excel
+              resultadoPorDia[sheetName] = eventosHoja;
             }
           });
 
@@ -133,29 +131,35 @@ const ExcelHandler = {
   },
 
   /**
-   * Convierte valores de hora de Excel (fechas seriales, "7:00 a. m." o "07:30") a "HH:MM"
+   * Convierte "7:00 a. m.", "1:40:00 a. m.", "07:30" o números a formato "HH:MM"
    */
-  formatExcelTimeValue(val) {
-    if (!val) return "08:00";
+  convertExcelTimeToHHMM(val) {
+    if (!val) return "07:00";
+    
+    // Si viene como número decimal de Excel
     if (typeof val === 'number') {
-      // Excel guarda horas como fracción de día (ej: 0.5 = 12:00)
-      const totalMinutes = Math.round(val * 24 * 60);
+      const totalMinutes = Math.round((val % 1) * 24 * 60);
       return TimeCalc.minutesToTime(totalMinutes);
     }
+
     const str = val.toString().trim().toLowerCase();
-    
-    // Si viene como "7:00 a. m." o "07:30 pm"
-    if (str.includes('m.')) {
+
+    // Caso: "7:00 a. m." o "1:31 p. m." o "7:00am"
+    if (str.includes('m.') || str.includes('am') || str.includes('pm')) {
       const isPm = str.includes('p');
-      const timePart = str.replace(/[^\d:]/g, '');
-      const parts = timePart.split(':');
+      // Extraer solo dígitos y dos puntos
+      const cleanTime = str.replace(/[^\d:]/g, '');
+      const parts = cleanTime.split(':');
       let hours = parseInt(parts[0], 10) || 0;
-      const mins = parts[1] || '00';
+      const mins = parts[1] ? parts[1].padStart(2, '0') : '00';
+
       if (isPm && hours < 12) hours += 12;
       if (!isPm && hours === 12) hours = 0;
+
       return `${hours.toString().padStart(2, '0')}:${mins}`;
     }
 
+    // Caso: "07:30:00" o "07:30"
     if (str.includes(':')) {
       const parts = str.split(':');
       const hh = parts[0].padStart(2, '0');
@@ -163,7 +167,7 @@ const ExcelHandler = {
       return `${hh}:${mm}`;
     }
 
-    return "08:00";
+    return "07:00";
   },
 
   formatMinutesToStr(min) {
@@ -183,9 +187,6 @@ const ExcelHandler = {
     return `${hours}:${minutes} ${ampm}`;
   },
 
-  /**
-   * EXPORTACIÓN DE TODAS LAS PESTAÑAS (Dia 1, Dia 2, Dia 3) EN UN SOLO ARCHIVO EXCEL
-   */
   async exportAllDaysToExcel(diasList, eventosPorDiaMap) {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Agenda Master';
@@ -221,7 +222,6 @@ const ExcelHandler = {
         { key: 'notas', width: 25 },
       ];
 
-      // Bloque superior idéntico a tu modelo
       sheet.mergeCells('C2:D4');
       const cHorario = sheet.getCell('C2');
       cHorario.value = 'Horario';
@@ -250,7 +250,6 @@ const ExcelHandler = {
       cFecha.alignment = { vertical: 'middle', horizontal: 'center' };
       cFecha.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_ENCABEZADO } };
 
-      // Encabezados en fila 5
       const headers = ['INICIO', 'DURACIÓN', 'FINAL', 'TEMA', 'DETALLE', 'RESPONSABLE', 'NOTAS'];
       const row5 = sheet.getRow(5);
       headers.forEach((h, idx) => {
@@ -262,7 +261,6 @@ const ExcelHandler = {
       });
       row5.height = 24;
 
-      // Filas de datos
       eventos.forEach((ev, idx) => {
         const row = sheet.getRow(6 + idx);
         row.getCell(3).value = this.formatTimeToAmPm(ev.hora_inicio);

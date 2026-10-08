@@ -1,6 +1,6 @@
 /**
  * js/time-calc.js
- * Utilidades matemáticas de tiempo, cascada y detección en vivo
+ * Utilidades matemáticas con soporte para duraciones Excel (0:30, 1:40, etc.)
  */
 
 const TimeCalc = {
@@ -13,68 +13,72 @@ const TimeCalc = {
   },
 
   minutesToTime(totalMinutes) {
-    let normalized = totalMinutes % 1440;
+    let normalized = Math.round(totalMinutes) % 1440;
     if (normalized < 0) normalized += 1440;
     const hours = Math.floor(normalized / 60);
     const mins = Math.floor(normalized % 60);
     return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
   },
 
+  /**
+   * Parsea duraciones de Excel: "0:30" (30 min), "1:00" (60 min), "1:40" (100 min), o decimales
+   */
   parseDurationToMinutes(val) {
-    if (typeof val === 'number') return Math.round(val);
-    if (!val) return 0;
+    if (val === null || val === undefined || val === '') return 30;
+
+    // Si viene como número decimal de Excel (ej: 0.020833 = 30 min)
+    if (typeof val === 'number') {
+      if (val > 0 && val < 1) {
+        return Math.round(val * 24 * 60);
+      }
+      return Math.round(val);
+    }
+
     const str = val.toString().trim();
+
+    // Si viene como "H:MM" o "HH:MM" (ej: "0:30", "1:00", "1:40")
     if (str.includes(':')) {
       const parts = str.split(':');
-      if (parts.length >= 2) return (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+      const hrs = parseInt(parts[0], 10) || 0;
+      const mins = parseInt(parts[1], 10) || 0;
+      return (hrs * 60) + mins;
     }
+
+    // Si viene como "45 min" o "30"
     const match = str.match(/\d+/);
-    return match ? parseInt(match[0], 10) : 0;
+    return match ? parseInt(match[0], 10) : 30;
   },
 
   /**
-   * Recálculo en Cascada automático
+   * Recálculo en cascada cuando el Administrador cambia una duración
    */
   recalculateCascade(eventosList) {
     if (!eventosList || eventosList.length === 0) return [];
     const list = [...eventosList];
-    let primerInicioMin = this.timeToMinutes(list[0].hora_inicio || "08:00");
-
-    let currentSlotStartMin = primerInicioMin;
-    let maxSlotDurationMin = 0;
 
     for (let i = 0; i < list.length; i++) {
       const current = list[i];
       const prev = i > 0 ? list[i - 1] : null;
-      const esSimultaneo = prev && (prev._originalInicio === current._originalInicio || prev.hora_inicio === current.hora_inicio);
+      const esSimultaneo = prev && (prev._originalInicio === current._originalInicio);
 
       if (i === 0) {
-        current.hora_inicio = this.minutesToTime(currentSlotStartMin);
-        const dur = this.parseDurationToMinutes(current.duracion_minutos);
-        current.duracion_minutos = dur;
-        current.hora_fin = this.minutesToTime(currentSlotStartMin + dur);
-        maxSlotDurationMin = dur;
+        const startMin = this.timeToMinutes(current.hora_inicio || "07:00");
+        current.hora_inicio = this.minutesToTime(startMin);
+        current.hora_fin = this.minutesToTime(startMin + current.duracion_minutos);
       } else if (esSimultaneo) {
         current.hora_inicio = prev.hora_inicio;
-        const dur = this.parseDurationToMinutes(current.duracion_minutos);
-        current.duracion_minutos = dur;
-        current.hora_fin = this.minutesToTime(this.timeToMinutes(current.hora_inicio) + dur);
-        maxSlotDurationMin = Math.max(maxSlotDurationMin, dur);
+        const startMin = this.timeToMinutes(current.hora_inicio);
+        current.hora_fin = this.minutesToTime(startMin + current.duracion_minutos);
       } else {
-        currentSlotStartMin = this.timeToMinutes(prev.hora_inicio) + maxSlotDurationMin;
-        current.hora_inicio = this.minutesToTime(currentSlotStartMin);
-        const dur = this.parseDurationToMinutes(current.duracion_minutos);
-        current.duracion_minutos = dur;
-        current.hora_fin = this.minutesToTime(currentSlotStartMin + dur);
-        maxSlotDurationMin = dur;
+        // Inicia cuando termina el bloque anterior
+        current.hora_inicio = prev.hora_fin;
+        const startMin = this.timeToMinutes(current.hora_inicio);
+        current.hora_fin = this.minutesToTime(startMin + current.duracion_minutos);
       }
     }
     return list;
   },
 
-  /**
-   * Desplazar toda la agenda (suma o resta minutos en bloque)
-   */
   shiftAll(eventosList, deltaMin) {
     if (!eventosList || eventosList.length === 0) return [];
     const list = [...eventosList];
@@ -83,9 +87,6 @@ const TimeCalc = {
     return this.recalculateCascade(list);
   },
 
-  /**
-   * Determina si la hora actual cae dentro del rango de una actividad
-   */
   isNowInRange(horaInicioStr, horaFinStr) {
     const now = new Date();
     const currentMin = (now.getHours() * 60) + now.getMinutes();
