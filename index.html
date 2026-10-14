@@ -1,21 +1,16 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="scroll-smooth">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agenda Master</title>
   
-  <!-- FAVICON DE AGENDA (Sustituye el mundito de la red) -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='18' height='18' x='3' y='4' rx='2' ry='2'/><line x1='16' x2='16' y1='2' y2='6'/><line x1='8' x2='8' y1='2' y2='6'/><line x1='3' x2='21' y1='10' y2='10'/><path d='m9 16 2 2 4-4'/></svg>">
   
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- SheetJS & ExcelJS -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-  <!-- Supabase JS Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Iconos Lucide -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <script>
@@ -38,8 +33,8 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
 
-  <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+  <!-- CABECERA PRINCIPAL -->
+  <header class="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
       
       <div class="flex items-center gap-3">
@@ -52,7 +47,6 @@
         </div>
       </div>
 
-      <!-- RELOJ EN VIVO -->
       <div class="hidden md:flex items-center gap-2 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700">
         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
         <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-500"></i>
@@ -60,19 +54,16 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <!-- Indicador de Modo -->
         <span id="badge-modo" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           Modo Lectura
         </span>
 
-        <!-- Botón Exportar Excel -->
         <button id="btn-export-excel" class="hidden sm:inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition shadow-sm border border-slate-200">
           <i data-lucide="download" class="w-4 h-4 text-emerald-600"></i>
           <span>Descargar Excel</span>
         </button>
 
-        <!-- Botón Login / Logout -->
         <button id="btn-auth-toggle" class="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition shadow-sm">
           <i data-lucide="lock" class="w-4 h-4"></i>
           <span id="txt-auth-btn">Acceso Admin</span>
@@ -84,7 +75,7 @@
   <!-- CONTENIDO PRINCIPAL -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-1">
     
-    <!-- BARRA DE HERRAMIENTAS ADMIN (Visible solo en Modo Admin) -->
+    <!-- BARRA ADMIN -->
     <div id="panel-admin-tools" class="hidden mb-6 bg-gradient-to-r from-indigo-50/80 via-white to-slate-50 border border-indigo-200 rounded-2xl p-4 sm:p-5 shadow-sm">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -96,19 +87,16 @@
         </div>
         
         <div class="flex flex-wrap items-center gap-2">
-          <!-- Botón Ajuste de Emergencia -->
           <button id="btn-shift-time" class="inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm">
             <i data-lucide="fast-forward" class="w-3.5 h-3.5 text-amber-600"></i>
             Ajuste de Tiempo (± min)
           </button>
 
-          <!-- Botón Nuevo Bloque -->
           <button id="btn-add-row" class="inline-flex items-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-300 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm">
             <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
             Nuevo Bloque
           </button>
           
-          <!-- Botón Guardar en Supabase -->
           <button id="btn-save-db" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm">
             <i data-lucide="save" class="w-3.5 h-3.5"></i>
             Guardar Cambios
@@ -116,41 +104,56 @@
         </div>
       </div>
 
-      <!-- Zona Drag & Drop -->
+      <!-- Drag & Drop -->
       <div id="drop-zone" class="mt-4 border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-white/80 rounded-xl p-4 text-center cursor-pointer transition">
         <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
         <div class="flex flex-col items-center justify-center gap-1 pointer-events-none">
           <i data-lucide="file-spreadsheet" class="w-7 h-7 text-indigo-500"></i>
           <p class="text-xs sm:text-sm font-semibold text-slate-700">Arrastra tu archivo Excel aquí o <span class="text-indigo-600 underline">haz clic para examinar</span></p>
-          <p class="text-[11px] text-slate-400">Columnas: INICIO, DURACIÓN, FINAL, TEMA, DETALLE, RESPONSABLE, NOTAS</p>
+          <p class="text-[11px] text-slate-400">Lee todas las pestañas: Dia 1, Dia 2 y Dia 3</p>
         </div>
       </div>
     </div>
 
-    <!-- PESTAÑAS DE DÍAS Y BUSCADOR -->
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 border-b border-slate-200 pb-3 mb-6">
-      <!-- Pestañas dinámicas -->
-      <div class="flex items-center gap-2 overflow-x-auto py-1 scrollbar-none" id="tabs-container">
-        <!-- Generado en js/app.js -->
-      </div>
+    <!-- PESTAÑAS STICKY (Se mantienen fijas al scrollear hacia abajo) -->
+    <div class="sticky top-16 z-30 bg-slate-50/95 backdrop-blur-md py-3 border-b border-slate-200 mb-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+      <div class="flex items-center gap-2 overflow-x-auto py-1 scrollbar-none" id="tabs-container"></div>
 
       <!-- Buscador en Vivo -->
       <div class="relative min-w-[240px]">
         <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-        <input type="text" id="input-search" placeholder="Buscar orador, tema..." class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <input type="text" id="input-search" placeholder="Buscar orador, tema..." class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-sm">
         <button id="btn-clear-search" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
           <i data-lucide="x" class="w-3.5 h-3.5"></i>
         </button>
       </div>
     </div>
 
-    <!-- CONTENEDOR DE EVENTOS -->
-    <div id="agenda-container" class="space-y-4">
-      <!-- Inyectado por js/app.js -->
-    </div>
+    <!-- LISTA DE ACTIVIDADES -->
+    <div id="agenda-container" class="space-y-4 pb-20"></div>
+
   </main>
 
-  <!-- MODAL DE AJUSTE DE EMERGENCIA DE TIEMPO (+/- MIN) -->
+  <!-- BOTÓN FLOTANTE "VOLVER ARRIBA" (Aparece al scrollear hacia abajo) -->
+  <button id="btn-scroll-top" class="fixed bottom-6 right-6 z-40 bg-brand-600 hover:bg-brand-700 text-white p-3 rounded-full shadow-xl opacity-0 pointer-events-none transition-all duration-300 transform translate-y-4 hover:scale-110" title="Volver arriba">
+    <i data-lucide="arrow-up" class="w-5 h-5"></i>
+  </button>
+
+  <script>
+    // Mostrar/ocultar botón flotante de scroll suave
+    window.addEventListener('scroll', () => {
+      const btn = document.getElementById('btn-scroll-top');
+      if (!btn) return;
+      if (window.scrollY > 300) {
+        btn.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-4');
+      } else {
+        btn.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
+      }
+    });
+    document.getElementById('btn-scroll-top').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+  </script>
+
+  <!-- MODAL AJUSTE DE TIEMPO -->
   <div id="modal-shift" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-slate-100">
       <div class="flex items-center gap-3 mb-4">
@@ -163,7 +166,7 @@
         </div>
       </div>
 
-      <p class="text-xs text-slate-600 mb-4">Selecciona cuántos minutos deseas sumar o restar a partir del primer bloque:</p>
+      <p class="text-xs text-slate-600 mb-4">Selecciona cuántos minutos deseas sumar o restar:</p>
 
       <div class="grid grid-cols-3 gap-2 mb-4">
         <button onclick="desplazarTiempos(5)" class="py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl font-bold text-xs border border-amber-200 transition">+5 min</button>
@@ -180,7 +183,7 @@
     </div>
   </div>
 
-  <!-- MODAL DE DIÁLOGO Y CONFIRMACIÓN ELEGANTE (Elimina los confirms feos) -->
+  <!-- DIÁLOGOS ESTILIZADOS -->
   <div id="custom-dialog-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-200">
     <div class="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-slate-100 transform scale-95 transition-transform duration-200" id="custom-dialog-card">
       <div class="flex items-center gap-3 mb-4">
@@ -202,7 +205,7 @@
     </div>
   </div>
 
-  <!-- MODAL DE LOGIN ADMIN -->
+  <!-- MODAL LOGIN ADMIN -->
   <div id="modal-login" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-100 relative">
       <button id="btn-close-modal" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1">
@@ -240,7 +243,7 @@
     </div>
   </div>
 
-  <!-- TOAST NOTIFICADOR -->
+  <!-- TOAST -->
   <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm">
     <i id="toast-icon" data-lucide="info" class="w-5 h-5 text-indigo-400"></i>
     <span id="toast-text">Mensaje</span>
