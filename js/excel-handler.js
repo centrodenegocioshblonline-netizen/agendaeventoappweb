@@ -16,18 +16,37 @@ const ExcelHandler = {
   },
 
   // Identifica si una hoja corresponde al Día 1, 2 o 3 sin importar el formato del nombre
+  
   detectDayNumber(sheetName) {
-    const clean = (sheetName || '')
+    if (!sheetName) return null;
+
+    // 1. Limpieza total de acentos, espacios y caracteres especiales
+    const clean = sheetName
       .toString()
       .trim()
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]/g, ""); // Ej: "Día 1 - Mañana" -> "dia1manana"
+      .replace(/[\u0300-\u036f]/g, ""); // "Día 1" -> "dia 1"
 
-    const match = clean.match(/dia0*([1-3])/);
-    return match ? parseInt(match[1], 10) : null;
+    // 2. Descartar de inmediato hojas que no nos interesan
+    if (clean.includes("comision") || clean.includes("imprimir") || clean.includes("reconocimiento")) {
+      return null;
+    }
+
+    // 3. Buscar si contiene "dia 1", "dia1", "dia 2", "dia-3", etc.
+    const match = clean.match(/dia\s*[-_]?\s*([1-3])/i);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+
+    // 4. Si la pestaña solo se llama "1", "2" o "3"
+    if (/^[1-3]$/.test(clean.trim())) {
+      return parseInt(clean.trim(), 10);
+    }
+
+    return null;
   },
+
 
   // Convierte duraciones ("1:40", "0:30", número serial de Excel o minutos puros) a enteros
   parseDurationToMinutes(val) {
@@ -107,19 +126,27 @@ const ExcelHandler = {
             throw new Error("El archivo Excel no contiene hojas de cálculo.");
           }
 
+          console.log("Hojas encontradas en el archivo:", workbook.SheetNames);
+
           // Filtrar y ordenar hojas que correspondan a Día 1, Día 2 y Día 3
           const hojasFiltradas = [];
           workbook.SheetNames.forEach(name => {
             const dayNum = this.detectDayNumber(name);
+            console.log(`Evaluando hoja: "${name}" -> Resultado:`, dayNum ? `Día ${dayNum}` : "Ignorada");
+
             if (dayNum !== null && dayNum >= 1 && dayNum <= 3) {
-              hojasFiltradas.push({ originalName: name, dayNum: dayNum });
+              // Evitar meter la misma hoja dos veces si hubiera nombres parecidos
+              if (!hojasFiltradas.some(h => h.dayNum === dayNum)) {
+                hojasFiltradas.push({ originalName: name, dayNum: dayNum });
+              }
             }
           });
 
           if (hojasFiltradas.length === 0) {
-            throw new Error("No se encontraron hojas válidas correspondientes a 'Día 1', 'Día 2' o 'Día 3'.");
+            throw new Error(`No se encontraron hojas para Día 1, Día 2 o Día 3. Las hojas leídas fueron: [${workbook.SheetNames.join(', ')}]`);
           }
 
+          // Ordenar siempre: Día 1 -> Día 2 -> Día 3
           hojasFiltradas.sort((a, b) => a.dayNum - b.dayNum);
 
           const resultadoPorDia = {};
@@ -128,13 +155,24 @@ const ExcelHandler = {
             const worksheet = workbook.Sheets[originalName];
             if (!worksheet) return;
 
-            // Asegurar que el rango cubra todo desde A1
+            // Asegurar que el rango cubra todo desde A1 (col 0, row 0)
             if (worksheet['!ref']) {
               const range = XLSX.utils.decode_range(worksheet['!ref']);
               range.s.r = 0;
               range.s.c = 0;
+
+              Object.keys(worksheet).forEach(cellKey => {
+                if (cellKey[0] === '!') return;
+                try {
+                  const decoded = XLSX.utils.decode_cell(cellKey);
+                  if (decoded.r > range.e.r) range.e.r = decoded.r;
+                  if (decoded.c > range.e.c) range.e.c = decoded.c;
+                } catch (err) {}
+              });
+
               worksheet['!ref'] = XLSX.utils.encode_range(range);
             }
+            
 
             const rowsMatrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
             if (!rowsMatrix || rowsMatrix.length === 0) return;
