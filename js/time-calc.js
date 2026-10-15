@@ -52,32 +52,42 @@ const TimeCalc = {
   /**
    * Recálculo en cascada cuando el Administrador cambia una duración
    */
-  recalculateCascade(eventosList) {
-    if (!eventosList || eventosList.length === 0) return [];
-    const list = [...eventosList];
+  // RECALCULA EN CASCADA INTELIGENTE
+  recalculateCascade(eventos, startFromIndex = 0) {
+    if (!eventos || eventos.length === 0) return [];
+
+    // Hacemos una copia profunda
+    const list = eventos.map(e => ({ ...e }));
 
     for (let i = 0; i < list.length; i++) {
-      const current = list[i];
-      const prev = i > 0 ? list[i - 1] : null;
-      const esSimultaneo = prev && (prev._originalInicio === current._originalInicio);
+      const dur = parseInt(list[i].duracion_minutos, 10) || 5;
+      list[i].duracion_minutos = dur;
 
-      if (i === 0) {
-        const startMin = this.timeToMinutes(current.hora_inicio || "07:00");
-        current.hora_inicio = this.minutesToTime(startMin);
-        current.hora_fin = this.minutesToTime(startMin + current.duracion_minutos);
-      } else if (esSimultaneo) {
-        current.hora_inicio = prev.hora_inicio;
-        const startMin = this.timeToMinutes(current.hora_inicio);
-        current.hora_fin = this.minutesToTime(startMin + current.duracion_minutos);
-      } else {
-        // Inicia cuando termina el bloque anterior
-        current.hora_inicio = prev.hora_fin;
-        const startMin = this.timeToMinutes(current.hora_inicio);
-        current.hora_fin = this.minutesToTime(startMin + current.duracion_minutos);
+      // Si estamos después del índice modificado y no es una actividad simultánea intencional
+      if (i > 0 && i >= startFromIndex) {
+        const prev = list[i - 1];
+        const prevFinMins = this.timeToMinutes(prev.hora_fin);
+        const actualInicioMins = this.timeToMinutes(list[i].hora_inicio);
+
+        // Si la actividad anterior terminaba DESPUÉS del inicio de esta, o si estaban encadenadas
+        // la corremos para que empiece donde terminó la anterior
+        if (actualInicioMins < prevFinMins && list[i].hora_inicio === prev.hora_inicio) {
+          // Es intencionalmente simultánea con la anterior: MANTIENE la hora de inicio de la anterior
+          list[i].hora_inicio = prev.hora_inicio;
+        } else if (i >= startFromIndex) {
+          // Es consecutiva: arranca donde terminó la anterior
+          list[i].hora_inicio = prev.hora_fin;
+        }
       }
+
+      // Calcular siempre su hora de fin correcta
+      const startMins = this.timeToMinutes(list[i].hora_inicio);
+      list[i].hora_fin = this.minutesToTime(startMins + dur);
     }
+
     return list;
   },
+  
 
   shiftAll(eventosList, deltaMin) {
     if (!eventosList || eventosList.length === 0) return [];

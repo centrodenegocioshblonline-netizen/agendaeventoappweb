@@ -585,32 +585,26 @@ window.desplazarTiempos = function(minutos) {
 };
 
 // CASCADA DE DURACIÓN
+// En js/app.js:
 window.cambiarDuracionCascada = function(eventoId, nuevaDuracion) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
-  const evento = eventos.find(e => e.id === eventoId);
-  if (!evento) return;
+  const idx = eventos.findIndex(e => e.id === eventoId);
+  if (idx === -1) return;
 
-  evento.duracion_minutos = Math.max(1, parseInt(nuevaDuracion, 10) || 5);
+  eventos[idx].duracion_minutos = Math.max(1, parseInt(nuevaDuracion, 10) || 5);
+
   if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.recalculateCascade === 'function') {
-    AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos);
+    AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos, idx + 1);
   }
   renderAgenda();
   marcarCambiosPendientes();
-  showToast("Horarios recalculados en cascada", "info");
-};
-
-window.actualizarCampo = function(eventoId, campo, valor) {
-  const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
-  const evento = eventos.find(e => e.id === eventoId);
-  if (evento) {
-    evento[campo] = valor;
-    marcarCambiosPendientes();
-  }
+  showToast("Horario recalculado", "info");
 };
 
 window.confirmarEliminarEvento = async function(eventoId) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
-  const evento = eventos.find(e => e.id === eventoId);
+  const idx = eventos.findIndex(e => e.id === eventoId);
+  const evento = eventos[idx];
   const nombre = evento ? `"${evento.tema}"` : "este bloque";
 
   const confirmado = await AppDialog.confirm({
@@ -622,17 +616,20 @@ window.confirmarEliminarEvento = async function(eventoId) {
   });
 
   if (confirmado) {
-    let actualizados = eventos.filter(e => e.id !== eventoId);
+    // Si eliminamos una actividad que era simultánea con otra, la otra conserva su hora
+    eventos.splice(idx, 1);
+    
+    // Recalcular a partir del punto de eliminación
     if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.recalculateCascade === 'function') {
-      AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(actualizados);
-    } else {
-      AppState.eventosPorDia[AppState.diaActivoId] = actualizados;
+      AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos, idx);
     }
+    
     renderAgenda();
     marcarCambiosPendientes();
     showToast("Bloque eliminado", "info");
   }
 };
+
 
 function marcarCambiosPendientes() {
   const btnSaveDb = document.getElementById('btn-save-db');
