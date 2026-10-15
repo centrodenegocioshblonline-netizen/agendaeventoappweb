@@ -672,7 +672,7 @@ function actualizarModoUI() {
   const badgeModo = document.getElementById('badge-modo');
   const panelAdmin = document.getElementById('panel-admin-tools');
   const txtAuthBtn = document.getElementById('txt-auth-btn');
-  const btnExport = document.getElementById('btn-export-excel'); // Botón de Excel
+  const btnExport = document.getElementById('btn-export-excel'); // <-- Agrega esta línea
 
   if (badgeModo) {
     if (AppState.isAdmin) {
@@ -684,22 +684,22 @@ function actualizarModoUI() {
     }
   }
 
-  // Panel de herramientas de edición (solo Admin)
   if (panelAdmin) {
     if (AppState.isAdmin) panelAdmin.classList.remove('hidden');
     else panelAdmin.classList.add('hidden');
   }
 
-  // Botón Descargar Excel (Solo visible si es Admin)
+  // AQUÍ ES DONDE SE OCULTA / MUESTRA:
   if (btnExport) {
     if (AppState.isAdmin) {
       btnExport.classList.remove('hidden');
+      btnExport.classList.add('inline-flex');
     } else {
       btnExport.classList.add('hidden');
+      btnExport.classList.remove('inline-flex');
     }
   }
 
-  // Texto del botón de acceso
   if (txtAuthBtn) {
     txtAuthBtn.innerText = AppState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
   }
