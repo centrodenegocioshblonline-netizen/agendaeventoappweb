@@ -672,6 +672,7 @@ function actualizarModoUI() {
   const badgeModo = document.getElementById('badge-modo');
   const panelAdmin = document.getElementById('panel-admin-tools');
   const txtAuthBtn = document.getElementById('txt-auth-btn');
+  const btnExport = document.getElementById('btn-export-excel'); // Botón de Excel
 
   if (badgeModo) {
     if (AppState.isAdmin) {
@@ -683,15 +684,27 @@ function actualizarModoUI() {
     }
   }
 
+  // Panel de herramientas de edición (solo Admin)
   if (panelAdmin) {
     if (AppState.isAdmin) panelAdmin.classList.remove('hidden');
     else panelAdmin.classList.add('hidden');
   }
 
+  // Botón Descargar Excel (Solo visible si es Admin)
+  if (btnExport) {
+    if (AppState.isAdmin) {
+      btnExport.classList.remove('hidden');
+    } else {
+      btnExport.classList.add('hidden');
+    }
+  }
+
+  // Texto del botón de acceso
   if (txtAuthBtn) {
     txtAuthBtn.innerText = AppState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
   }
 }
+
 
 // 4. LISTENERS DE EVENTOS Y PARSER MULTI-HOJA
 function setupEventListeners() {
