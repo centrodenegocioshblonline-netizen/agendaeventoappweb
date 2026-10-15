@@ -1,11 +1,95 @@
 /**
  * js/excel-handler.js
- * Lector sin límites de filas (expande el rango real de Excel) y soporte multi-hoja
+ * Lector robusto multi-hoja para Día 1, Día 2 y Día 3
+ * Soporta mayúsculas, minúsculas, tildes, formatos de hora a.m./p.m. y duraciones H:MM
  */
 
 const ExcelHandler = {
+  // Normaliza cualquier texto: quita tildes, pasa a mayúsculas y quita espacios en los bordes
   normalizeText(txt) {
-    return (txt || '').toString().trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return (txt || '')
+      .toString()
+      .trim()
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  },
+
+  // Detecta si una hoja corresponde al Día 1, 2 o 3 (sin importar mayúsculas, tildes, guiones o espacios)
+  detectDayNumber(sheetName) {
+    const clean = (sheetName || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, ""); // Ej: "Día 1 " -> "dia1"
+
+    const match = clean.match(/^dia0*([1-3])$/) || clean.match(/dia0*([1-3])/);
+    return match ? parseInt(match[1], 10) : null;
+  },
+
+  // Convierte texto de duración como "1:40", "0:30", "1:12", "45", etc., a minutos exactos
+  parseDurationToMinutes(val) {
+    if (!val && val !== 0) return 30;
+    
+    // Si viene como número decimal de Excel (fracción de día, ej: 0.0416667 = 1 hora)
+    if (typeof val === 'number') {
+      if (val < 1) {
+        return Math.round(val * 24 * 60);
+      }
+      return Math.round(val);
+    }
+
+    const str = val.toString().trim();
+    if (str.includes(':')) {
+      const parts = str.split(':');
+      const hours = parseInt(parts[0], 10) || 0;
+      const mins = parseInt(parts[1], 10) || 0;
+      return (hours * 60) + mins;
+    }
+
+    const numericOnly = parseInt(str.replace(/[^\d]/g, ''), 10);
+    return isNaN(numericOnly) || numericOnly <= 0 ? 30 : numericOnly;
+  },
+
+  // Convierte "7:00 a. m.", "1:31 p. m.", "13:45", etc., a formato estándar "HH:MM" de 24h
+  convertExcelTimeToHHMM(val) {
+    if (!val && val !== 0) return null;
+
+    // Si Excel lo entrega como fracción de día
+    if (typeof val === 'number') {
+      const totalMinutes = Math.round((val % 1) * 24 * 60);
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    }
+
+    const str = val.toString().trim().toLowerCase();
+
+    // Detección de AM / PM (ej: "7:00 a. m." o "1:31 p. m.")
+    if (str.includes('m.') || str.includes('am') || str.includes('pm')) {
+      const isPm = str.includes('p');
+      const cleanDigits = str.replace(/[^\d:]/g, '');
+      const parts = cleanDigits.split(':');
+      let hours = parseInt(parts[0], 10) || 0;
+      const mins = parts[1] ? parts[1].substring(0, 2).padStart(2, '0') : '00';
+
+      if (isPm && hours < 12) hours += 12;
+      if (!isPm && hours === 12) hours = 0;
+
+      return `${hours.toString().padStart(2, '0')}:${mins}`;
+    }
+
+    // Formato con dos puntos directo (ej: "13:30" o "08:00")
+    if (str.includes(':')) {
+      const parts = str.split(':');
+      const hh = (parseInt(parts[0], 10) || 0).toString().padStart(2, '0');
+      const mm = (parts[1] || '00').substring(0, 2).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+
+    return null;
   },
 
   async parseExcelWorkbook(file) {
@@ -21,38 +105,34 @@ const ExcelHandler = {
             throw new Error("El archivo Excel no tiene hojas.");
           }
 
-          // 1. Filtrar hojas de Días
-          let hojasDias = workbook.SheetNames.filter(name => {
-            const n = this.normalizeText(name);
-            return n.includes("DIA 1") || n.includes("DIA 2") || n.includes("DIA 3") || n.includes("DIA 4") ||
-                   n === "DIA1" || n === "DIA2" || n === "DIA3";
+          // 1. Filtrar ESTRICTAMENTE las hojas que corresponden a Día 1, Día 2 y Día 3
+          const hojasFiltradas = [];
+          workbook.SheetNames.forEach(sheetName => {
+            const dayNum = this.detectDayNumber(sheetName);
+            if (dayNum !== null && dayNum >= 1 && dayNum <= 3) {
+              hojasFiltradas.push({ originalName: sheetName, dayNum: dayNum });
+            }
           });
 
-          if (hojasDias.length === 0) {
-            hojasDias = workbook.SheetNames.filter(name => {
-              const n = this.normalizeText(name);
-              return !n.includes("MC") && !n.includes("COMISION") && !n.includes("IMPRIMIR") && !n.includes("RECONOC");
-            });
+          if (hojasFiltradas.length === 0) {
+            throw new Error("No se encontraron hojas para Día 1, Día 2 o Día 3 en el archivo.");
           }
 
-          if (hojasDias.length === 0) hojasDias = [workbook.SheetNames[0]];
-
-          // Ordenar numéricamente: Día 1, Día 2, Día 3...
-          hojasDias.sort((a, b) => {
-            const numA = parseInt((a.match(/\d+/) || [99])[0], 10);
-            const numB = parseInt((b.match(/\d+/) || [99])[0], 10);
-            return numA - numB;
-          });
+          // 2. Ordenar numéricamente: Día 1 -> Día 2 -> Día 3
+          hojasFiltradas.sort((a, b) => a.dayNum - b.dayNum);
 
           const resultadoPorDia = {};
 
-          hojasDias.forEach(sheetName => {
-            const worksheet = workbook.Sheets[sheetName];
+          hojasFiltradas.forEach(({ originalName, dayNum }) => {
+            const worksheet = workbook.Sheets[originalName];
+            if (!worksheet) return;
 
-            // CORRECCIÓN CLAVE: EXPANDIR EL RANGO DE EXCEL HASTA LA ÚLTIMA CELDA REAL
-            // Evita que Excel corte la lectura en la fila 10 (8:35 a. m.)
+            // EXPANDIR RANGO COMPLETO: Asegura que empiece en A1 (col 0, row 0) y cubra hasta la última celda real
             if (worksheet['!ref']) {
               const range = XLSX.utils.decode_range(worksheet['!ref']);
+              range.s.r = 0; // Siempre empezar en fila 1 (índice 0)
+              range.s.c = 0; // Siempre empezar en col A (índice 0)
+
               Object.keys(worksheet).forEach(cellKey => {
                 if (cellKey[0] === '!') return;
                 try {
@@ -67,23 +147,25 @@ const ExcelHandler = {
             const rowsMatrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
             if (!rowsMatrix || rowsMatrix.length === 0) return;
 
-            // 2. Detectar encabezados
+            // 3. Detectar fila de encabezados buscando coincidencias clave
             let headerRowIndex = -1;
-            let colMap = { inicio: -1, duracion: -1, final: -1, tema: -1, detalle: -1, responsable: -1, notas: -1 };
+            let colMap = { inicio: 2, duracion: 3, final: 4, tema: 5, detalle: 6, responsable: 7, notas: 8 };
 
             for (let r = 0; r < Math.min(25, rowsMatrix.length); r++) {
               const row = rowsMatrix[r];
-              const normCells = row.map(c => this.normalizeText(c));
+              if (!row || row.length === 0) continue;
 
+              const normCells = row.map(c => this.normalizeText(c));
               const idxInicio = normCells.findIndex(c => c.includes('INICIO') || c === 'HORA' || c.includes('DESDE'));
               const idxTema = normCells.findIndex(c => c.includes('TEMA') || c.includes('ACTIVIDAD') || c.includes('TITULO') || c.includes('DESCRIPCION'));
 
-              if (idxInicio !== -1 || idxTema !== -1) {
+              // Para considerar que es el encabezado real, debe coincidir al menos INICIO o TEMA
+              if (idxInicio !== -1 && (idxTema !== -1 || normCells.some(c => c.includes('DURAC') || c.includes('FINAL')))) {
                 headerRowIndex = r;
-                colMap.inicio = idxInicio !== -1 ? idxInicio : 2;
+                colMap.inicio = idxInicio;
                 colMap.duracion = normCells.findIndex(c => c.includes('DURAC') || c.includes('MIN') || c.includes('TIEMPO'));
                 colMap.final = normCells.findIndex(c => c.includes('FINAL') || c.includes('FIN') || c.includes('HASTA'));
-                colMap.tema = idxTema !== -1 ? idxTema : 5;
+                colMap.tema = idxTema !== -1 ? idxTema : colMap.inicio + 3;
                 colMap.detalle = normCells.findIndex(c => c.includes('DETALLE') || c.includes('CONTENIDO'));
                 colMap.responsable = normCells.findIndex(c => c.includes('RESPONSABLE') || c.includes('ORADOR') || c.includes('ENCARGADO'));
                 colMap.notas = normCells.findIndex(c => c.includes('NOTA') || c.includes('LUGAR') || c.includes('SALA'));
@@ -91,6 +173,7 @@ const ExcelHandler = {
               }
             }
 
+            // Fallback si la fila no se detectó por nombres: estructura estándar (C=2, D=3, E=4, F=5, G=6, H=7, I=8)
             if (headerRowIndex === -1) {
               headerRowIndex = 4;
               colMap = { inicio: 2, duracion: 3, final: 4, tema: 5, detalle: 6, responsable: 7, notas: 8 };
@@ -103,7 +186,7 @@ const ExcelHandler = {
               if (colMap.notas === -1) colMap.notas = colMap.inicio + 6;
             }
 
-            // 3. Extraer TODAS las actividades de principio a fin del día
+            // 4. Extraer TODAS las filas de actividades sin omitir ninguna
             const eventosHoja = [];
             let ultimoInicioValido = "07:00";
             let ultimaDuracionValida = 30;
@@ -112,63 +195,80 @@ const ExcelHandler = {
               const row = rowsMatrix[r];
               if (!row || row.length === 0) continue;
 
-              let rawInicio = row[colMap.inicio];
-              let rawDuracion = row[colMap.duracion];
-              let rawTema = row[colMap.tema];
-              let rawDetalle = colMap.detalle !== -1 ? row[colMap.detalle] : '';
-              let rawResp = colMap.responsable !== -1 ? row[colMap.responsable] : '';
-              let rawNotas = colMap.notas !== -1 ? row[colMap.notas] : '';
+              const rawInicio = row[colMap.inicio];
+              const rawDuracion = row[colMap.duracion];
+              const rawFin = colMap.final !== -1 ? row[colMap.final] : '';
+              const rawTema = row[colMap.tema];
+              const rawDetalle = colMap.detalle !== -1 ? row[colMap.detalle] : '';
+              const rawResp = colMap.responsable !== -1 ? row[colMap.responsable] : '';
+              const rawNotas = colMap.notas !== -1 ? row[colMap.notas] : '';
 
-              if (!rawInicio && !rawTema && !rawDetalle && !rawResp) continue;
-
-              // Herencia para celdas combinadas
-              let inicioStr = '';
-              if (rawInicio && rawInicio.toString().trim() !== '') {
-                inicioStr = this.convertExcelTimeToHHMM(rawInicio);
-                ultimoInicioValido = inicioStr;
-              } else {
-                inicioStr = ultimoInicioValido;
+              // Si toda la fila está vacía en los campos principales, la ignoramos
+              if (!rawInicio && !rawDuracion && !rawFin && !rawTema && !rawDetalle && !rawResp && !rawNotas) {
+                continue;
               }
 
-              let duracionMin = 30;
-              if (rawDuracion && rawDuracion.toString().trim() !== '') {
-                duracionMin = TimeCalc.parseDurationToMinutes(rawDuracion);
+              // Procesar Hora de Inicio
+              let parsedInicio = this.convertExcelTimeToHHMM(rawInicio);
+              if (parsedInicio) {
+                ultimoInicioValido = parsedInicio;
+              } else {
+                parsedInicio = ultimoInicioValido;
+              }
+
+              // Procesar Duración
+              let duracionMin = this.parseDurationToMinutes(rawDuracion);
+              if (duracionMin > 0) {
                 ultimaDuracionValida = duracionMin;
               } else {
                 duracionMin = ultimaDuracionValida;
               }
 
-              let finStr = '';
-              let rawFin = colMap.final !== -1 ? row[colMap.final] : '';
-              if (rawFin && rawFin.toString().trim() !== '') {
-                finStr = this.convertExcelTimeToHHMM(rawFin);
-              } else {
-                finStr = TimeCalc.minutesToTime(TimeCalc.timeToMinutes(inicioStr) + duracionMin);
+              // Procesar Hora Fin (Usa la columna FINAL si está presente; si no, la calcula)
+              let parsedFin = this.convertExcelTimeToHHMM(rawFin);
+              if (!parsedFin) {
+                const [h, m] = parsedInicio.split(':').map(Number);
+                const totalFinMins = (h * 60) + m + duracionMin;
+                const finH = Math.floor(totalFinMins / 60) % 24;
+                const finM = totalFinMins % 60;
+                parsedFin = `${finH.toString().padStart(2, '0')}:${finM.toString().padStart(2, '0')}`;
               }
 
+              // Procesar Tema / Actividad
               let temaStr = (rawTema || '').toString().trim();
-              if (!temaStr && (rawDetalle || rawResp || rawNotas)) {
-                temaStr = (rawDetalle || rawResp || rawNotas).toString().trim();
-                rawDetalle = '';
-              } else if (!temaStr) {
-                temaStr = "Transición / Receso";
+              let detalleStr = (rawDetalle || '').toString().trim();
+
+              if (!temaStr) {
+                if (detalleStr || rawResp || rawNotas) {
+                  temaStr = detalleStr || (rawResp || rawNotas).toString().trim();
+                  detalleStr = '';
+                } else {
+                  temaStr = "Actividad General";
+                }
               }
 
+              // Categorización visual automática
               let categoria = 'normal';
-              const t = temaStr.toUpperCase() + ' ' + (rawDetalle || '').toString().toUpperCase();
-              if (t.includes('VIDEO') || t.includes('MUSICA') || t.includes('AUDIO') || t.includes('ROTATIVO')) categoria = 'video';
-              else if (duracionMin >= 50 || t.includes('TALLER') || t.includes('CH.C') || t.includes('SESION') || t.includes('LIDERAZGO')) categoria = 'especial';
-              else if (t.includes('COFFEE') || t.includes('ALMUERZO') || t.includes('RECESO') || t.includes('CENA') || t.includes('COCTEL')) categoria = 'receso';
-              else if (t.includes('PRUEBA') || t.includes('INSTALACION') || t.includes('VOZ EN OFF') || t.includes('SISTEMAS')) categoria = 'tecnico';
+              const textoCompleto = (temaStr + ' ' + detalleStr).toUpperCase();
+              if (textoCompleto.includes('VIDEO') || textoCompleto.includes('MUSICA') || textoCompleto.includes('AUDIO') || textoCompleto.includes('ROTATIVO')) {
+                categoria = 'video';
+              } else if (duracionMin >= 50 || textoCompleto.includes('TALLER') || textoCompleto.includes('CH.C') || textoCompleto.includes('SESION') || textoCompleto.includes('LIDERAZGO')) {
+                categoria = 'especial';
+              } else if (textoCompleto.includes('COFFEE') || textoCompleto.includes('ALMUERZO') || textoCompleto.includes('RECESO') || textoCompleto.includes('CENA') || textoCompleto.includes('COCTEL')) {
+                categoria = 'receso';
+              } else if (textoCompleto.includes('PRUEBA') || textoCompleto.includes('INSTALACION') || textoCompleto.includes('VOZ EN OFF') || textoCompleto.includes('SISTEMAS')) {
+                categoria = 'tecnico';
+              }
 
               eventosHoja.push({
                 id: 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
-                hora_inicio: inicioStr,
-                _originalInicio: inicioStr,
+                dia_numero: dayNum,
+                hora_inicio: parsedInicio,
+                _originalInicio: parsedInicio,
                 duracion_minutos: duracionMin,
-                hora_fin: finStr,
+                hora_fin: parsedFin,
                 tema: temaStr,
-                detalle: (rawDetalle || '').toString().trim(),
+                detalle: detalleStr,
                 responsable: (rawResp || '').toString().trim(),
                 notas: (rawNotas || '').toString().trim(),
                 categoria: categoria,
@@ -177,7 +277,12 @@ const ExcelHandler = {
             }
 
             if (eventosHoja.length > 0) {
-              resultadoPorDia[sheetName] = eventosHoja;
+              // Guardamos bajo el nombre original, bajo "Día X" con tilde y bajo "Dia X" sin tilde
+              // para garantizar que app.js lo encuentre sin importar cómo lo busque
+              resultadoPorDia[originalName] = eventosHoja;
+              resultadoPorDia[`Día ${dayNum}`] = eventosHoja;
+              resultadoPorDia[`Dia ${dayNum}`] = eventosHoja;
+              resultadoPorDia[dayNum] = eventosHoja;
             }
           });
 
@@ -190,35 +295,6 @@ const ExcelHandler = {
       reader.onerror = (err) => reject(err);
       reader.readAsArrayBuffer(file);
     });
-  },
-
-  convertExcelTimeToHHMM(val) {
-    if (!val) return "07:00";
-    if (typeof val === 'number') {
-      const totalMinutes = Math.round((val % 1) * 24 * 60);
-      return TimeCalc.minutesToTime(totalMinutes);
-    }
-    const str = val.toString().trim().toLowerCase();
-
-    if (str.includes('m.') || str.includes('am') || str.includes('pm')) {
-      const isPm = str.includes('p');
-      const cleanTime = str.replace(/[^\d:]/g, '');
-      const parts = cleanTime.split(':');
-      let hours = parseInt(parts[0], 10) || 0;
-      const mins = parts[1] ? parts[1].padStart(2, '0') : '00';
-      if (isPm && hours < 12) hours += 12;
-      if (!isPm && hours === 12) hours = 0;
-      return `${hours.toString().padStart(2, '0')}:${mins}`;
-    }
-
-    if (str.includes(':')) {
-      const parts = str.split(':');
-      const hh = parts[0].padStart(2, '0');
-      const mm = (parts[1] || '00').substring(0, 2);
-      return `${hh}:${mm}`;
-    }
-
-    return "07:00";
   },
 
   formatMinutesToStr(min) {
@@ -255,7 +331,7 @@ const ExcelHandler = {
     };
 
     diasList.forEach(dia => {
-      const eventos = eventosPorDiaMap[dia.id] || [];
+      const eventos = eventosPorDiaMap[dia.id] || eventosPorDiaMap[dia.nombre] || [];
       if (eventos.length === 0) return;
 
       const sheetName = (dia.nombre || 'Dia').replace(/[/\\?*[\]]/g, '').slice(0, 31);
