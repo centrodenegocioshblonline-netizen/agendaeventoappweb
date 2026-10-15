@@ -1,6 +1,6 @@
 /**
- * js/app.js - ARCHIVO COMPLETO Y CORREGIDO
- * Controlador Maestro con Protección contra Errores
+ * js/app.js - CONTROLADOR MAESTRO CORREGIDO
+ * Compatible con ExcelHandler multi-hoja (Día 1, Día 2, Día 3) y Supabase
  */
 
 // 1. SISTEMA DE DIÁLOGOS ESTILIZADOS
@@ -127,33 +127,25 @@ const AppState = {
   diaActivoId: 'dia-1',
   filtroTexto: '',
   eventosPorDia: {
-    'dia-1': [
-      { id: 'e1', dia_id: 'dia-1', hora_inicio: '07:00', duracion_minutos: 30, hora_fin: '07:30', tema: 'Apertura del Registro', detalle: 'Disponible de 12:00am a 4:00pm', responsable: 'Staff Herbalife', notas: 'Lugar Centro de Negocio', categoria: 'normal', orden: 1 },
-      { id: 'e2', dia_id: 'dia-1', hora_inicio: '07:00', duracion_minutos: 30, hora_fin: '07:30', tema: 'Reunión de organizadores', detalle: 'Briefing con comité', responsable: 'Dirección', notas: 'Salón VIP', categoria: 'normal', orden: 2 },
-      { id: 'e3', dia_id: 'dia-1', hora_inicio: '07:30', duracion_minutos: 60, hora_fin: '08:30', tema: 'Audiovisuales', detalle: 'Instalación y Pruebas técnicas', responsable: 'Sistemas', notas: 'Revisión técnica', categoria: 'tecnico', orden: 3 },
-      { id: 'e4', dia_id: 'dia-1', hora_inicio: '08:30', duracion_minutos: 5, hora_fin: '08:35', tema: 'Videos Rotativos', detalle: 'Proyección continua', responsable: 'Sistemas', notas: '', categoria: 'video', orden: 4 },
-      { id: 'e5', dia_id: 'dia-1', hora_inicio: '08:35', duracion_minutos: 20, hora_fin: '08:55', tema: 'Apertura de puertas', detalle: 'Ingreso miembros de Presidencia', responsable: 'Gregorio B / Juan F', notas: 'CDN Auditorio', categoria: 'especial', orden: 5 }
-    ],
+    'dia-1': [],
     'dia-2': [],
     'dia-3': []
   },
   isAdmin: false
 };
 
-// ESTILOS DE CATEGORÍAS
 const CATEGORIA_STYLES = {
   normal: { bg: 'bg-white', border: 'border-slate-200', tag: 'General', badgeBg: 'bg-slate-100 text-slate-700' },
   video: { bg: 'bg-emerald-50/40', border: 'border-emerald-300', tag: 'Video / Música', badgeBg: 'bg-emerald-100 text-emerald-800' },
   especial: { bg: 'bg-orange-50/50', border: 'border-orange-300', tag: 'Orador / Taller', badgeBg: 'bg-orange-100 text-orange-800' },
-  tecnico: { bg: 'bg-rose-50/50', border: 'border-rose-300', tag: 'Técnico / Prueba', badgeBg: 'bg-rose-100 text-rose-800' },
+  tecnico: { bg: 'bg-rose-50/50', border: 'border-rose-300', tag: 'Técnico / Audio', badgeBg: 'bg-rose-100 text-rose-800' },
   receso: { bg: 'bg-blue-50/40', border: 'border-blue-300', tag: 'Receso / Coffee', badgeBg: 'bg-blue-100 text-blue-800' }
 };
 
-// 3. INICIALIZACIÓN PROTEGIDA
+// 3. INICIALIZACIÓN
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     if (window.lucide) lucide.createIcons();
-
     iniciarRelojEnVivo();
 
     if (window.AuthManager) {
@@ -162,7 +154,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     actualizarModoUI();
-
     await cargarDatosDeSupabase();
 
     renderTabs();
@@ -170,13 +161,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
   } catch (error) {
     console.error("Error durante inicialización:", error);
-    // Renderizado forzado de emergencia para que la app nunca se quede en blanco
     renderTabs();
     renderAgenda();
   }
 });
 
-// RELOJ EN TIEMPO REAL
 function iniciarRelojEnVivo() {
   const clockEl = document.getElementById('live-clock');
   const updateClock = () => {
@@ -186,14 +175,10 @@ function iniciarRelojEnVivo() {
   };
   updateClock();
   setInterval(updateClock, 1000);
-
-  // Refrescar cada 30 seg para actualizar actividades en curso
-  setInterval(() => {
-    renderAgenda();
-  }, 30000);
+  setInterval(() => renderAgenda(), 30000);
 }
 
-// SUPABASE
+// SINCRONIZACIÓN SUPABASE
 async function cargarDatosDeSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
   try {
@@ -216,30 +201,34 @@ async function cargarDatosDeSupabase() {
 }
 
 async function guardarCambiosEnSupabase() {
-  const eventosActuales = AppState.eventosPorDia[AppState.diaActivoId] || [];
   if (typeof supabaseClient === 'undefined' || !supabaseClient) {
     showToast("Cambios guardados en memoria local", "success");
     return;
   }
   try {
-    showToast("Sincronizando con Supabase...", "info");
-    await supabaseClient.from('eventos').delete().eq('dia_id', AppState.diaActivoId);
-    if (eventosActuales.length > 0) {
-      const inserts = eventosActuales.map((e, index) => ({
-        dia_id: AppState.diaActivoId,
-        hora_inicio: e.hora_inicio,
-        duracion_minutos: e.duracion_minutos,
-        hora_fin: e.hora_fin,
-        tema: e.tema,
-        detalle: e.detalle || '',
-        responsable: e.responsable || '',
-        notas: e.notas || '',
-        categoria: e.categoria || 'normal',
-        orden: index + 1
-      }));
-      await supabaseClient.from('eventos').insert(inserts);
+    showToast("Sincronizando todos los días con Supabase...", "info");
+
+    for (const dia of AppState.dias) {
+      const eventos = AppState.eventosPorDia[dia.id] || [];
+      await supabaseClient.from('eventos').delete().eq('dia_id', dia.id);
+
+      if (eventos.length > 0) {
+        const inserts = eventos.map((e, index) => ({
+          dia_id: dia.id,
+          hora_inicio: e.hora_inicio,
+          duracion_minutos: e.duracion_minutos,
+          hora_fin: e.hora_fin,
+          tema: e.tema,
+          detalle: e.detalle || '',
+          responsable: e.responsable || '',
+          notas: e.notas || '',
+          categoria: e.categoria || 'normal',
+          orden: index + 1
+        }));
+        await supabaseClient.from('eventos').insert(inserts);
+      }
     }
-    showToast("¡Agenda sincronizada exitosamente!", "success");
+    showToast("¡Agenda completa sincronizada exitosamente!", "success");
   } catch (err) {
     await AppDialog.alert({ title: "Error al guardar", message: err.message, type: "error" });
   }
@@ -333,7 +322,7 @@ async function renombrarDia(diaId) {
       await supabaseClient.from('dias').update({ nombre: dia.nombre }).eq('id', diaId);
     }
     renderTabs();
-    showToast("Nombre del día actualizado", "success");
+    showToast("Nombre actualizado", "success");
   }
 }
 
@@ -360,7 +349,7 @@ async function eliminarDia(diaId) {
   }
 }
 
-// RENDER DE LA AGENDA
+// RENDER AGENDA MINUTO A MINUTO
 function renderAgenda() {
   const container = document.getElementById('agenda-container');
   if (!container) return;
@@ -382,15 +371,15 @@ function renderAgenda() {
     container.innerHTML = `
       <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
         <i data-lucide="calendar-x" class="w-12 h-12 text-slate-300 mx-auto mb-3"></i>
-        <h4 class="text-base font-semibold text-slate-700">No se encontraron actividades</h4>
-        <p class="text-xs text-slate-400 mt-1">Verifica el filtro de búsqueda o arrastra tu archivo Excel.</p>
+        <h4 class="text-base font-semibold text-slate-700">No hay actividades para este día</h4>
+        <p class="text-xs text-slate-400 mt-1">Sube el archivo Excel o agrega un bloque manualmente.</p>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
     return;
   }
 
-  // Agrupar por hora de inicio (simultáneos)
+  // Agrupación de actividades simultáneas
   const grupos = [];
   eventos.forEach(ev => {
     let grupo = grupos.find(g => g.hora_inicio === ev.hora_inicio);
@@ -404,7 +393,6 @@ function renderAgenda() {
   grupos.forEach(grupo => {
     const esSimultaneo = grupo.items.length > 1;
 
-    // Detectar si está en curso (de forma segura)
     const algunoEnCurso = grupo.items.some(ev => {
       if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.isNowInRange === 'function') {
         return TimeCalc.isNowInRange(ev.hora_inicio, ev.hora_fin);
@@ -419,7 +407,6 @@ function renderAgenda() {
         : 'bg-white border-slate-200/90 hover:border-slate-300'
     }`;
 
-    // Columna Horario
     const timeCol = document.createElement('div');
     timeCol.className = 'w-full md:w-44 flex-shrink-0 flex items-center md:flex-col md:items-start justify-between border-b md:border-b-0 md:border-r border-slate-100 pb-3 md:pb-0 md:pr-4';
     timeCol.innerHTML = `
@@ -430,7 +417,7 @@ function renderAgenda() {
       <div class="flex flex-wrap items-center gap-1.5 mt-1">
         ${algunoEnCurso ? `
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-500 text-white animate-pulse shadow-sm">
-            ● AHORA
+            ● EN VIVO
           </span>
         ` : ''}
         ${esSimultaneo ? `
@@ -443,7 +430,6 @@ function renderAgenda() {
       </div>
     `;
 
-    // Tarjetas
     const cardsGrid = document.createElement('div');
     cardsGrid.className = `w-full grid gap-4 ${esSimultaneo ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`;
 
@@ -475,7 +461,7 @@ function renderAgenda() {
               <option value="normal" ${ev.categoria === 'normal' ? 'selected' : ''}>⚪ General</option>
               <option value="video" ${ev.categoria === 'video' ? 'selected' : ''}>🟢 Video / Audio</option>
               <option value="especial" ${ev.categoria === 'especial' ? 'selected' : ''}>🟠 Orador / Taller</option>
-              <option value="tecnico" ${ev.categoria === 'tecnico' ? 'selected' : ''}>🔴 Técnico / Prueba</option>
+              <option value="tecnico" ${ev.categoria === 'tecnico' ? 'selected' : ''}>🔴 Técnico / Audio</option>
               <option value="receso" ${ev.categoria === 'receso' ? 'selected' : ''}>🔵 Receso / Coffee</option>
             </select>
           </div>
@@ -531,7 +517,7 @@ function renderAgenda() {
   if (window.lucide) lucide.createIcons();
 }
 
-// DESPLAZAR TIEMPOS
+// DESPLAZAR TIEMPOS (SHIFT GENERAL)
 window.desplazarTiempos = function(minutos) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   if (eventos.length === 0) return;
@@ -545,7 +531,7 @@ window.desplazarTiempos = function(minutos) {
   showToast(`Agenda ajustada: ${minutos > 0 ? '+' : ''}${minutos} min`, "info");
 };
 
-// CASCADA
+// CASCADA DE DURACIÓN
 window.cambiarDuracionCascada = function(eventoId, nuevaDuracion) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   const evento = eventos.find(e => e.id === eventoId);
@@ -644,7 +630,7 @@ function actualizarModoUI() {
   }
 }
 
-// 4. LISTENERS DE EVENTOS Y MULTI-HOJA
+// 4. LISTENERS DE EVENTOS Y PARSER MULTI-HOJA
 function setupEventListeners() {
   const modalLogin = document.getElementById('modal-login');
   const btnAuthToggle = document.getElementById('btn-auth-toggle');
@@ -707,7 +693,7 @@ function setupEventListeners() {
     };
   }
 
-  // Ajuste de Tiempo
+  // Desplazamiento
   const btnShift = document.getElementById('btn-shift-time');
   const modalShift = document.getElementById('modal-shift');
   const btnCloseShift = document.getElementById('btn-close-shift');
@@ -746,63 +732,60 @@ function setupEventListeners() {
   const btnExport = document.getElementById('btn-export-excel');
   if (btnExport) {
     btnExport.onclick = async () => {
-      showToast("Generando Excel completo con todas las pestañas...", "info");
+      showToast("Generando Excel con fórmulas y hojas múltiples...", "info");
       if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.exportAllDaysToExcel === 'function') {
         await ExcelHandler.exportAllDaysToExcel(AppState.dias, AppState.eventosPorDia);
       }
-      showToast("¡Archivo Excel descargado con éxito!", "success");
+      showToast("¡Archivo Excel descargado exitosamente!", "success");
     };
   }
 
-  // IMPORTACIÓN MULTI-HOJA
+  // IMPORTACIÓN MULTI-HOJA SIN DUPLICADOS
   const procesarArchivoExcel = async (file) => {
     if (!file) return;
     try {
       showToast("Analizando hojas del archivo Excel...", "info");
-      
+
       let hojasResultado = {};
       if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.parseExcelWorkbook === 'function') {
         hojasResultado = await ExcelHandler.parseExcelWorkbook(file);
-      } else if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.parseExcelFile === 'function') {
-        const single = await ExcelHandler.parseExcelFile(file);
-        hojasResultado['Dia 1'] = single;
       }
 
-      const nombresHojas = Object.keys(hojasResultado);
-      if (nombresHojas.length === 0) {
+      // Filtrar solo los números puros (1, 2, 3) para evitar duplicación de claves
+      const diasProcesados = [1, 2, 3].filter(n => Array.isArray(hojasResultado[n]) && hojasResultado[n].length > 0);
+
+      if (diasProcesados.length === 0) {
         await AppDialog.alert({
           title: "Sin datos encontrados",
-          message: "No se encontraron filas con encabezados 'INICIO' y 'TEMA' en las hojas.",
+          message: "No se encontraron hojas con nombres tipo 'Día 1', 'Día 2' o 'Día 3' con sus encabezados correspondientes.",
           type: "error"
         });
         return;
       }
 
+      // Reinicializar listas con los días importados
+      AppState.dias = diasProcesados.map(num => ({
+        id: `dia-${num}`,
+        nombre: `Día ${num}`,
+        orden: num
+      }));
+
+      AppState.eventosPorDia = {};
       let resumen = [];
 
-      nombresHojas.forEach(nombreHoja => {
-        const eventosHoja = hojasResultado[nombreHoja];
-        const numMatch = nombreHoja.match(/\d+/);
-        const numeroDia = numMatch ? parseInt(numMatch[0], 10) : null;
+      diasProcesados.forEach(num => {
+        const diaId = `dia-${num}`;
+        const rawEventos = hojasResultado[num];
 
-        let diaDestino = null;
-        if (numeroDia) {
-          diaDestino = AppState.dias.find(d => d.orden === numeroDia || d.nombre.includes(`${numeroDia}`));
-        }
+        // Mapear eventos garantizando dia_id y orden secuencial
+        const eventosLimpios = rawEventos.map((ev, idx) => ({
+          ...ev,
+          dia_id: diaId,
+          orden: idx + 1
+        }));
 
-        if (!diaDestino) {
-          const nuevoId = 'dia-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
-          diaDestino = {
-            id: nuevoId,
-            nombre: nombreHoja,
-            orden: AppState.dias.length + 1
-          };
-          AppState.dias.push(diaDestino);
-        }
-
-        eventosHoja.forEach(ev => ev.dia_id = diaDestino.id);
-        AppState.eventosPorDia[diaDestino.id] = eventosHoja;
-        resumen.push(`${diaDestino.nombre}: ${eventosHoja.length} actividades`);
+        AppState.eventosPorDia[diaId] = eventosLimpios;
+        resumen.push(`Día ${num}: ${eventosLimpios.length} actividades`);
       });
 
       AppState.diaActivoId = AppState.dias[0].id;
@@ -811,7 +794,7 @@ function setupEventListeners() {
 
       await AppDialog.alert({
         title: "¡Importación Exitosa!",
-        message: `Se cargaron las siguientes pestañas:\n\n• ${resumen.join('\n• ')}`,
+        message: `Se cargaron las actividades correctamente:\n\n• ${resumen.join('\n• ')}`,
         type: "info"
       });
 
@@ -831,8 +814,15 @@ function setupEventListeners() {
   if (dropZone && fileInput) {
     dropZone.onclick = () => fileInput.click();
 
-    ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-600', 'bg-indigo-50/50'); }));
-    ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { e.preventDefault(); dropZone.classList.remove('border-indigo-600', 'bg-indigo-50/50'); }));
+    ['dragenter', 'dragover'].forEach(n => dropZone.addEventListener(n, (e) => { 
+      e.preventDefault(); 
+      dropZone.classList.add('border-indigo-600', 'bg-indigo-50/50'); 
+    }));
+    
+    ['dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, (e) => { 
+      e.preventDefault(); 
+      dropZone.classList.remove('border-indigo-600', 'bg-indigo-50/50'); 
+    }));
 
     dropZone.addEventListener('drop', (e) => {
       const file = e.dataTransfer.files[0];

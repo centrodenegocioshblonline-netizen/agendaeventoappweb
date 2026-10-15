@@ -1,11 +1,11 @@
 /**
  * js/excel-handler.js
- * Lector robusto multi-hoja para Día 1, Día 2 y Día 3
- * Soporta mayúsculas, minúsculas, tildes, formatos de hora a.m./p.m. y duraciones H:MM
+ * Lector y Generador robusto multi-hoja para Día 1, Día 2 y Día 3.
+ * Compatible con fórmulas nativas de Excel y detección universal de hojas/columnas.
  */
 
 const ExcelHandler = {
-  // Normaliza cualquier texto: quita tildes, pasa a mayúsculas y quita espacios en los bordes
+  // Normaliza textos: remueve acentos, dobles espacios y pasa a mayúsculas
   normalizeText(txt) {
     return (txt || '')
       .toString()
@@ -15,7 +15,7 @@ const ExcelHandler = {
       .replace(/[\u0300-\u036f]/g, "");
   },
 
-  // Detecta si una hoja corresponde al Día 1, 2 o 3 (sin importar mayúsculas, tildes, guiones o espacios)
+  // Identifica si una hoja corresponde al Día 1, 2 o 3 sin importar el formato del nombre
   detectDayNumber(sheetName) {
     const clean = (sheetName || '')
       .toString()
@@ -23,19 +23,19 @@ const ExcelHandler = {
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]/g, ""); // Ej: "Día 1 " -> "dia1"
+      .replace(/[^a-z0-9]/g, ""); // Ej: "Día 1 - Mañana" -> "dia1manana"
 
-    const match = clean.match(/^dia0*([1-3])$/) || clean.match(/dia0*([1-3])/);
+    const match = clean.match(/dia0*([1-3])/);
     return match ? parseInt(match[1], 10) : null;
   },
 
-  // Convierte texto de duración como "1:40", "0:30", "1:12", "45", etc., a minutos exactos
+  // Convierte duraciones ("1:40", "0:30", número serial de Excel o minutos puros) a enteros
   parseDurationToMinutes(val) {
-    if (!val && val !== 0) return 30;
-    
-    // Si viene como número decimal de Excel (fracción de día, ej: 0.0416667 = 1 hora)
+    if (val === null || val === undefined || val === '') return 30;
+
+    // Número decimal de Excel (fracción de día, ej: 0.020833 = 30 min)
     if (typeof val === 'number') {
-      if (val < 1) {
+      if (val > 0 && val < 1) {
         return Math.round(val * 24 * 60);
       }
       return Math.round(val);
@@ -53,21 +53,22 @@ const ExcelHandler = {
     return isNaN(numericOnly) || numericOnly <= 0 ? 30 : numericOnly;
   },
 
-  // Convierte "7:00 a. m.", "1:31 p. m.", "13:45", etc., a formato estándar "HH:MM" de 24h
+  // Convierte cualquier formato de hora (AM/PM, 24h o serial de Excel) a "HH:MM"
   convertExcelTimeToHHMM(val) {
-    if (!val && val !== 0) return null;
+    if (val === null || val === undefined || val === '') return null;
 
-    // Si Excel lo entrega como fracción de día
     if (typeof val === 'number') {
-      const totalMinutes = Math.round((val % 1) * 24 * 60);
-      const h = Math.floor(totalMinutes / 60);
+      // Fracción decimal de día de Excel
+      const dayFraction = val % 1;
+      const totalMinutes = Math.round(dayFraction * 24 * 60);
+      const h = Math.floor(totalMinutes / 60) % 24;
       const m = totalMinutes % 60;
       return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
     }
 
     const str = val.toString().trim().toLowerCase();
 
-    // Detección de AM / PM (ej: "7:00 a. m." o "1:31 p. m.")
+    // Detección AM / PM (ej: "7:30 a. m." o "1:31 p.m.")
     if (str.includes('m.') || str.includes('am') || str.includes('pm')) {
       const isPm = str.includes('p');
       const cleanDigits = str.replace(/[^\d:]/g, '');
@@ -81,17 +82,18 @@ const ExcelHandler = {
       return `${hours.toString().padStart(2, '0')}:${mins}`;
     }
 
-    // Formato con dos puntos directo (ej: "13:30" o "08:00")
+    // Formato 24 Horas directo (ej: "13:45" o "08:30")
     if (str.includes(':')) {
       const parts = str.split(':');
       const hh = (parseInt(parts[0], 10) || 0).toString().padStart(2, '0');
-      const mm = (parts[1] || '00').substring(0, 2).padStart(2, '0');
+      const mm = (parts[1] || '00').replace(/[^\d]/g, '').substring(0, 2).padStart(2, '0');
       return `${hh}:${mm}`;
     }
 
     return null;
   },
 
+  // LECTURA DEL WORKBOOK COMPLETO
   async parseExcelWorkbook(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -102,23 +104,22 @@ const ExcelHandler = {
           const workbook = XLSX.read(data, { type: 'array', cellDates: false });
 
           if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-            throw new Error("El archivo Excel no tiene hojas.");
+            throw new Error("El archivo Excel no contiene hojas de cálculo.");
           }
 
-          // 1. Filtrar ESTRICTAMENTE las hojas que corresponden a Día 1, Día 2 y Día 3
+          // Filtrar y ordenar hojas que correspondan a Día 1, Día 2 y Día 3
           const hojasFiltradas = [];
-          workbook.SheetNames.forEach(sheetName => {
-            const dayNum = this.detectDayNumber(sheetName);
+          workbook.SheetNames.forEach(name => {
+            const dayNum = this.detectDayNumber(name);
             if (dayNum !== null && dayNum >= 1 && dayNum <= 3) {
-              hojasFiltradas.push({ originalName: sheetName, dayNum: dayNum });
+              hojasFiltradas.push({ originalName: name, dayNum: dayNum });
             }
           });
 
           if (hojasFiltradas.length === 0) {
-            throw new Error("No se encontraron hojas para Día 1, Día 2 o Día 3 en el archivo.");
+            throw new Error("No se encontraron hojas válidas correspondientes a 'Día 1', 'Día 2' o 'Día 3'.");
           }
 
-          // 2. Ordenar numéricamente: Día 1 -> Día 2 -> Día 3
           hojasFiltradas.sort((a, b) => a.dayNum - b.dayNum);
 
           const resultadoPorDia = {};
@@ -127,66 +128,48 @@ const ExcelHandler = {
             const worksheet = workbook.Sheets[originalName];
             if (!worksheet) return;
 
-            // EXPANDIR RANGO COMPLETO: Asegura que empiece en A1 (col 0, row 0) y cubra hasta la última celda real
+            // Asegurar que el rango cubra todo desde A1
             if (worksheet['!ref']) {
               const range = XLSX.utils.decode_range(worksheet['!ref']);
-              range.s.r = 0; // Siempre empezar en fila 1 (índice 0)
-              range.s.c = 0; // Siempre empezar en col A (índice 0)
-
-              Object.keys(worksheet).forEach(cellKey => {
-                if (cellKey[0] === '!') return;
-                try {
-                  const decoded = XLSX.utils.decode_cell(cellKey);
-                  if (decoded.r > range.e.r) range.e.r = decoded.r;
-                  if (decoded.c > range.e.c) range.e.c = decoded.c;
-                } catch (err) {}
-              });
+              range.s.r = 0;
+              range.s.c = 0;
               worksheet['!ref'] = XLSX.utils.encode_range(range);
             }
 
             const rowsMatrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
             if (!rowsMatrix || rowsMatrix.length === 0) return;
 
-            // 3. Detectar fila de encabezados buscando coincidencias clave
+            // Escaneo dinámico de la fila de encabezados
             let headerRowIndex = -1;
-            let colMap = { inicio: 2, duracion: 3, final: 4, tema: 5, detalle: 6, responsable: 7, notas: 8 };
+            let colMap = { inicio: 1, duracion: 2, final: 3, tema: 4, detalle: 5, responsable: 6, notas: 7 };
 
-            for (let r = 0; r < Math.min(25, rowsMatrix.length); r++) {
+            for (let r = 0; r < Math.min(15, rowsMatrix.length); r++) {
               const row = rowsMatrix[r];
               if (!row || row.length === 0) continue;
 
               const normCells = row.map(c => this.normalizeText(c));
-              const idxInicio = normCells.findIndex(c => c.includes('INICIO') || c === 'HORA' || c.includes('DESDE'));
-              const idxTema = normCells.findIndex(c => c.includes('TEMA') || c.includes('ACTIVIDAD') || c.includes('TITULO') || c.includes('DESCRIPCION'));
+              const idxInicio = normCells.findIndex(c => c.includes('INICIO') || c === 'HORA');
+              const idxTema = normCells.findIndex(c => c.includes('TEMA') || c.includes('ACTIVIDAD'));
 
-              // Para considerar que es el encabezado real, debe coincidir al menos INICIO o TEMA
-              if (idxInicio !== -1 && (idxTema !== -1 || normCells.some(c => c.includes('DURAC') || c.includes('FINAL')))) {
+              if (idxInicio !== -1 && (idxTema !== -1 || normCells.some(c => c.includes('DURAC')))) {
                 headerRowIndex = r;
                 colMap.inicio = idxInicio;
-                colMap.duracion = normCells.findIndex(c => c.includes('DURAC') || c.includes('MIN') || c.includes('TIEMPO'));
-                colMap.final = normCells.findIndex(c => c.includes('FINAL') || c.includes('FIN') || c.includes('HASTA'));
+                colMap.duracion = normCells.findIndex(c => c.includes('DURAC') || c.includes('MIN'));
+                colMap.final = normCells.findIndex(c => c.includes('FINAL') || c.includes('FIN'));
                 colMap.tema = idxTema !== -1 ? idxTema : colMap.inicio + 3;
-                colMap.detalle = normCells.findIndex(c => c.includes('DETALLE') || c.includes('CONTENIDO'));
-                colMap.responsable = normCells.findIndex(c => c.includes('RESPONSABLE') || c.includes('ORADOR') || c.includes('ENCARGADO'));
-                colMap.notas = normCells.findIndex(c => c.includes('NOTA') || c.includes('LUGAR') || c.includes('SALA'));
+                colMap.detalle = normCells.findIndex(c => c.includes('DETALLE'));
+                colMap.responsable = normCells.findIndex(c => c.includes('RESPONSABLE') || c.includes('ORADOR'));
+                colMap.notas = normCells.findIndex(c => c.includes('NOTA') || c.includes('SALA'));
                 break;
               }
             }
 
-            // Fallback si la fila no se detectó por nombres: estructura estándar (C=2, D=3, E=4, F=5, G=6, H=7, I=8)
+            // Fallback según la plantilla estándar (Col B a H)
             if (headerRowIndex === -1) {
-              headerRowIndex = 4;
-              colMap = { inicio: 2, duracion: 3, final: 4, tema: 5, detalle: 6, responsable: 7, notas: 8 };
-            } else {
-              if (colMap.duracion === -1) colMap.duracion = colMap.inicio + 1;
-              if (colMap.final === -1) colMap.final = colMap.inicio + 2;
-              if (colMap.tema === -1) colMap.tema = colMap.inicio + 3;
-              if (colMap.detalle === -1) colMap.detalle = colMap.inicio + 4;
-              if (colMap.responsable === -1) colMap.responsable = colMap.inicio + 5;
-              if (colMap.notas === -1) colMap.notas = colMap.inicio + 6;
+              headerRowIndex = 3; // Fila 4 indexada en 0
+              colMap = { inicio: 1, duracion: 2, final: 3, tema: 4, detalle: 5, responsable: 6, notas: 7 };
             }
 
-            // 4. Extraer TODAS las filas de actividades sin omitir ninguna
             const eventosHoja = [];
             let ultimoInicioValido = "07:00";
             let ultimaDuracionValida = 30;
@@ -203,28 +186,17 @@ const ExcelHandler = {
               const rawResp = colMap.responsable !== -1 ? row[colMap.responsable] : '';
               const rawNotas = colMap.notas !== -1 ? row[colMap.notas] : '';
 
-              // Si toda la fila está vacía en los campos principales, la ignoramos
+              // Ignorar filas totalmente vacías
               if (!rawInicio && !rawDuracion && !rawFin && !rawTema && !rawDetalle && !rawResp && !rawNotas) {
                 continue;
               }
 
-              // Procesar Hora de Inicio
-              let parsedInicio = this.convertExcelTimeToHHMM(rawInicio);
-              if (parsedInicio) {
-                ultimoInicioValido = parsedInicio;
-              } else {
-                parsedInicio = ultimoInicioValido;
-              }
+              let parsedInicio = this.convertExcelTimeToHHMM(rawInicio) || ultimoInicioValido;
+              ultimoInicioValido = parsedInicio;
 
-              // Procesar Duración
-              let duracionMin = this.parseDurationToMinutes(rawDuracion);
-              if (duracionMin > 0) {
-                ultimaDuracionValida = duracionMin;
-              } else {
-                duracionMin = ultimaDuracionValida;
-              }
+              let duracionMin = this.parseDurationToMinutes(rawDuracion) || ultimaDuracionValida;
+              ultimaDuracionValida = duracionMin;
 
-              // Procesar Hora Fin (Usa la columna FINAL si está presente; si no, la calcula)
               let parsedFin = this.convertExcelTimeToHHMM(rawFin);
               if (!parsedFin) {
                 const [h, m] = parsedInicio.split(':').map(Number);
@@ -234,37 +206,31 @@ const ExcelHandler = {
                 parsedFin = `${finH.toString().padStart(2, '0')}:${finM.toString().padStart(2, '0')}`;
               }
 
-              // Procesar Tema / Actividad
               let temaStr = (rawTema || '').toString().trim();
               let detalleStr = (rawDetalle || '').toString().trim();
 
               if (!temaStr) {
-                if (detalleStr || rawResp || rawNotas) {
-                  temaStr = detalleStr || (rawResp || rawNotas).toString().trim();
-                  detalleStr = '';
-                } else {
-                  temaStr = "Actividad General";
-                }
+                temaStr = detalleStr || (rawResp || rawNotas).toString().trim() || "Actividad";
+                detalleStr = '';
               }
 
-              // Categorización visual automática
+              // Categorización visual automática idéntica al diseño
               let categoria = 'normal';
-              const textoCompleto = (temaStr + ' ' + detalleStr).toUpperCase();
-              if (textoCompleto.includes('VIDEO') || textoCompleto.includes('MUSICA') || textoCompleto.includes('AUDIO') || textoCompleto.includes('ROTATIVO')) {
+              const fullText = `${temaStr} ${detalleStr}`.toUpperCase();
+              if (fullText.includes('VIDEO') || fullText.includes('MUSICA') || fullText.includes('ROTATIVO')) {
                 categoria = 'video';
-              } else if (duracionMin >= 50 || textoCompleto.includes('TALLER') || textoCompleto.includes('CH.C') || textoCompleto.includes('SESION') || textoCompleto.includes('LIDERAZGO')) {
+              } else if (duracionMin >= 50 || fullText.includes('CH.C') || fullText.includes('SESION') || fullText.includes('TALLER')) {
                 categoria = 'especial';
-              } else if (textoCompleto.includes('COFFEE') || textoCompleto.includes('ALMUERZO') || textoCompleto.includes('RECESO') || textoCompleto.includes('CENA') || textoCompleto.includes('COCTEL')) {
+              } else if (fullText.includes('ALMUERZO') || fullText.includes('RECESO') || fullText.includes('COFFEE')) {
                 categoria = 'receso';
-              } else if (textoCompleto.includes('PRUEBA') || textoCompleto.includes('INSTALACION') || textoCompleto.includes('VOZ EN OFF') || textoCompleto.includes('SISTEMAS')) {
+              } else if (fullText.includes('AUDIOVISUAL') || fullText.includes('PRUEBA') || fullText.includes('VOZ EN OFF')) {
                 categoria = 'tecnico';
               }
 
               eventosHoja.push({
-                id: 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                id: 'ev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
                 dia_numero: dayNum,
                 hora_inicio: parsedInicio,
-                _originalInicio: parsedInicio,
                 duracion_minutos: duracionMin,
                 hora_fin: parsedFin,
                 tema: temaStr,
@@ -277,18 +243,16 @@ const ExcelHandler = {
             }
 
             if (eventosHoja.length > 0) {
-              // Guardamos bajo el nombre original, bajo "Día X" con tilde y bajo "Dia X" sin tilde
-              // para garantizar que app.js lo encuentre sin importar cómo lo busque
               resultadoPorDia[originalName] = eventosHoja;
-              resultadoPorDia[`Día ${dayNum}`] = eventosHoja;
               resultadoPorDia[`Dia ${dayNum}`] = eventosHoja;
+              resultadoPorDia[`Día ${dayNum}`] = eventosHoja;
               resultadoPorDia[dayNum] = eventosHoja;
             }
           });
 
           resolve(resultadoPorDia);
-        } catch (error) {
-          reject(error);
+        } catch (err) {
+          reject(err);
         }
       };
 
@@ -297,130 +261,152 @@ const ExcelHandler = {
     });
   },
 
-  formatMinutesToStr(min) {
-    const hrs = Math.floor(min / 60);
-    const mins = min % 60;
-    return `${hrs}:${mins.toString().padStart(2, '0')}`;
-  },
-
-  formatTimeToAmPm(timeStr) {
-    if (!timeStr) return '';
-    const parts = timeStr.split(':');
-    let hours = parseInt(parts[0], 10);
-    const minutes = parts[1] || '00';
-    const ampm = hours >= 12 ? 'p. m.' : 'a. m.';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    return `${hours}:${minutes} ${ampm}`;
-  },
-
+  // EXPORTACIÓN A EXCEL (Respeta columnas originales B a H y fórmulas minuto a minuto)
   async exportAllDaysToExcel(diasList, eventosPorDiaMap) {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Agenda Master';
+    workbook.creator = 'Agenda Master App';
     workbook.created = new Date();
 
-    const AZUL_ENCABEZADO = '13547A';
-    const TEXTO_BLANCO = 'FFFFFF';
-    const BORDE_GRIS = 'D9D9D9';
-    const COLORES = {
-      video: 'E2EFDA',
-      especial: 'FCE4D6',
-      receso: 'D9E1F2',
-      tecnico: 'FCE8E6',
-      normal: null
+    const COLOR_HEADER = '13547A';
+    const COLOR_TEXT_BLANCO = 'FFFFFF';
+    const BORDE_COLOR = 'D9D9D9';
+
+    const COLORES_CATEGORIA = {
+      video: 'E2EFDA',     // Verde suave
+      especial: 'FCE4D6',  // Naranja suave
+      receso: 'D9E1F2',    // Azul pastel
+      tecnico: 'FCE8E6',   // Rosado técnico
+      normal: 'FFFFFF'
     };
 
     diasList.forEach(dia => {
-      const eventos = eventosPorDiaMap[dia.id] || eventosPorDiaMap[dia.nombre] || [];
-      if (eventos.length === 0) return;
+      const eventos = eventosPorDiaMap[dia.id] || eventosPorDiaMap[dia.nombre] || eventosPorDiaMap[dia.numero] || [];
+      if (!eventos || eventos.length === 0) return;
 
-      const sheetName = (dia.nombre || 'Dia').replace(/[/\\?*[\]]/g, '').slice(0, 31);
-      const sheet = workbook.addWorksheet(sheetName, { views: [{ showGridLines: true }] });
+      const sheetTitle = (dia.nombre || `Dia ${dia.numero || 1}`).replace(/[/\\?*[\]]/g, '').slice(0, 31);
+      const sheet = workbook.addWorksheet(sheetTitle, { views: [{ showGridLines: true }] });
 
+      // Anchos idénticos a la plantilla de Excel
       sheet.columns = [
-        { key: 'colA', width: 4 },
-        { key: 'colB', width: 4 },
-        { key: 'inicio', width: 14 },
-        { key: 'duracion', width: 12 },
-        { key: 'fin', width: 14 },
-        { key: 'tema', width: 34 },
-        { key: 'detalle', width: 45 },
-        { key: 'responsable', width: 22 },
-        { key: 'notas', width: 25 },
+        { key: 'colA', width: 4 },   // Margen
+        { key: 'inicio', width: 14 }, // B
+        { key: 'dur', width: 12 },    // C
+        { key: 'fin', width: 14 },    // D
+        { key: 'tema', width: 32 },   // E
+        { key: 'det', width: 48 },    // F
+        { key: 'resp', width: 22 },   // G
+        { key: 'notas', width: 22 }   // H
       ];
 
-      sheet.mergeCells('C2:D4');
-      const cHorario = sheet.getCell('C2');
+      // Bloque superior izquierdo combinado (B2:D3)
+      sheet.mergeCells('B2:D3');
+      const cHorario = sheet.getCell('B2');
       cHorario.value = 'Horario';
-      cHorario.font = { name: 'Arial', size: 16, bold: true, color: { argb: TEXTO_BLANCO } };
+      cHorario.font = { name: 'Arial', size: 16, bold: true, color: { argb: COLOR_TEXT_BLANCO } };
       cHorario.alignment = { vertical: 'middle', horizontal: 'center' };
-      cHorario.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_ENCABEZADO } };
+      cHorario.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_HEADER } };
 
-      sheet.mergeCells('E2:I2');
-      const cTit = sheet.getCell('E2');
-      cTit.value = 'FSL - Caracas OCT 2026';
-      cTit.font = { name: 'Arial', size: 12, bold: true, color: { argb: TEXTO_BLANCO } };
-      cTit.alignment = { vertical: 'middle', horizontal: 'center' };
-      cTit.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_ENCABEZADO } };
+      // Encabezados descriptivos combinados (E1:H3)
+      const titulos = [
+        { cell: 'E1', merge: 'E1:H1', text: 'FSL - Caracas OCT 2026', size: 11, bold: true },
+        { cell: 'E2', merge: 'E2:H2', text: `${dia.nombre || 'Día'} - Sesión Oficial`, size: 11, bold: true },
+        { cell: 'E3', merge: 'E3:H3', text: 'Agenda Minuto a Minuto', size: 10, bold: false }
+      ];
 
-      sheet.mergeCells('E3:I3');
-      const cSub = sheet.getCell('E3');
-      cSub.value = `${dia.nombre} - Sesión Oficial`;
-      cSub.font = { name: 'Arial', size: 11, bold: true, color: { argb: TEXTO_BLANCO } };
-      cSub.alignment = { vertical: 'middle', horizontal: 'center' };
-      cSub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_ENCABEZADO } };
-
-      sheet.mergeCells('E4:I4');
-      const cFecha = sheet.getCell('E4');
-      cFecha.value = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-      cFecha.font = { name: 'Arial', size: 10, bold: true, color: { argb: TEXTO_BLANCO } };
-      cFecha.alignment = { vertical: 'middle', horizontal: 'center' };
-      cFecha.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_ENCABEZADO } };
-
-      const headers = ['INICIO', 'DURACIÓN', 'FINAL', 'TEMA', 'DETALLE', 'RESPONSABLE', 'NOTAS'];
-      const row5 = sheet.getRow(5);
-      headers.forEach((h, idx) => {
-        const cell = row5.getCell(idx + 3);
-        cell.value = h;
-        cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: TEXTO_BLANCO } };
+      titulos.forEach(t => {
+        sheet.mergeCells(t.merge);
+        const cell = sheet.getCell(t.cell);
+        cell.value = t.text;
+        cell.font = { name: 'Arial', size: t.size, bold: t.bold, color: { argb: COLOR_TEXT_BLANCO } };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_ENCABEZADO } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_HEADER } };
       });
-      row5.height = 24;
 
+      // Fila 4: Nombres de columnas
+      const headers = [
+        { col: 2, label: 'INICIO' },
+        { col: 3, label: 'DURACIÓN' },
+        { col: 4, label: 'FINAL' },
+        { col: 5, label: 'TEMA' },
+        { col: 6, label: 'DETALLE' },
+        { col: 7, label: 'RESPONSABLE' },
+        { col: 8, label: 'NOTAS' }
+      ];
+
+      const row4 = sheet.getRow(4);
+      row4.height = 24;
+      headers.forEach(h => {
+        const c = row4.getCell(h.col);
+        c.value = h.label;
+        c.font = { name: 'Arial', size: 9, bold: true, color: { argb: COLOR_TEXT_BLANCO } };
+        c.alignment = { vertical: 'middle', horizontal: 'center' };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_HEADER } };
+      });
+
+      // Filas de actividades con FÓRMULAS VIVAS de Excel
       eventos.forEach((ev, idx) => {
-        const row = sheet.getRow(6 + idx);
-        row.getCell(3).value = this.formatTimeToAmPm(ev.hora_inicio);
-        row.getCell(4).value = this.formatMinutesToStr(ev.duracion_minutos);
-        row.getCell(5).value = this.formatTimeToAmPm(ev.hora_fin);
-        row.getCell(6).value = ev.tema || '';
-        row.getCell(7).value = ev.detalle || '';
-        row.getCell(8).value = ev.responsable || '';
-        row.getCell(9).value = ev.notas || '';
+        const rowIdx = 5 + idx;
+        const row = sheet.getRow(rowIdx);
+        row.height = 24;
 
-        const bg = COLORES[ev.categoria] || null;
+      // B: HORA INICIO
+        const cellInicio = row.getCell(2);
+        if (idx === 0) {
+          // Primera actividad: Hora base estática como fracción de día
+          const [h, m] = (ev.hora_inicio || '07:00').split(':').map(Number);
+          cellInicio.value = (h / 24) + (m / 1440);
+        } else {
+          // Filas siguientes: Fórmula encadenada al FINAL anterior
+          cellInicio.value = { formula: `D${rowIdx - 1}` };
+        }
+        cellInicio.numFmt = 'hh:mm AM/PM';
 
-        for (let c = 3; c <= 9; c++) {
-          const cell = row.getCell(c);
-          cell.font = { name: 'Arial', size: 9 };
-          if (c >= 3 && c <= 5) {
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
-            cell.font.bold = true;
+        // C: DURACIÓN (Fracción de día = minutos / 1440)
+        const cellDur = row.getCell(3);
+        const mins = Number(ev.duracion_minutos) || 30;
+        cellDur.value = mins / 1440;
+        cellDur.numFmt = '[h]:mm';
+
+        // D: HORA FINAL (Fórmula = INICIO + DURACIÓN)
+        const cellFin = row.getCell(4);
+        cellFin.value = { formula: `B${rowIdx}+C${rowIdx}` };
+        cellFin.numFmt = 'hh:mm AM/PM';
+
+        // E a H: Datos descriptivos
+        row.getCell(5).value = ev.tema || '';
+        row.getCell(6).value = ev.detalle || '';
+        row.getCell(7).value = ev.responsable || '';
+        row.getCell(8).value = ev.notas || '';
+
+        // Estilos, bordes y colores por categoría
+        const bgHex = COLORES_CATEGORIA[ev.categoria] || COLORES_CATEGORIA.normal;
+
+        for (let col = 2; col <= 8; col++) {
+          const c = row.getCell(col);
+          c.font = { name: 'Arial', size: 9 };
+          
+          if (col >= 2 && col <= 4) {
+            c.alignment = { vertical: 'middle', horizontal: 'center' };
+            c.font.bold = true;
           } else {
-            cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+            c.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
           }
-          if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-          cell.border = {
-            top: { style: 'thin', color: { argb: BORDE_GRIS } },
-            bottom: { style: 'thin', color: { argb: BORDE_GRIS } },
-            left: { style: 'thin', color: { argb: BORDE_GRIS } },
-            right: { style: 'thin', color: { argb: BORDE_GRIS } }
+
+          if (bgHex !== 'FFFFFF') {
+            c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgHex } };
+          }
+
+          c.border = {
+            top: { style: 'thin', color: { argb: BORDE_COLOR } },
+            bottom: { style: 'thin', color: { argb: BORDE_COLOR } },
+            left: { style: 'thin', color: { argb: BORDE_COLOR } },
+            right: { style: 'thin', color: { argb: BORDE_COLOR } }
           };
         }
-        row.height = 22;
       });
     });
 
+    // Generar buffer y descargar archivo
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = window.URL.createObjectURL(blob);
