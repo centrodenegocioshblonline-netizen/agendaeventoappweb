@@ -1,6 +1,6 @@
 /**
- * js/app.js - CONTROLADOR MAESTRO CORREGIDO
- * Compatible con ExcelHandler multi-hoja (Día 1, Día 2, Día 3) y Supabase
+ * js/app.js - ARCHIVO COMPLETO Y ACTUALIZADO
+ * Controlador Maestro con Sincronización Total a Supabase y Multi-Hoja
  */
 
 // 1. SISTEMA DE DIÁLOGOS ESTILIZADOS
@@ -178,59 +178,108 @@ function iniciarRelojEnVivo() {
   setInterval(() => renderAgenda(), 30000);
 }
 
-// SINCRONIZACIÓN SUPABASE
+// SINCRONIZACIÓN CON SUPABASE
 async function cargarDatosDeSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
   try {
-    const { data: diasDb } = await supabaseClient.from('dias').select('*').order('orden', { ascending: true });
+    const { data: diasDb, error: errDias } = await supabaseClient
+      .from('dias')
+      .select('*')
+      .order('orden', { ascending: true });
+
+    if (errDias) throw errDias;
+
     if (diasDb && diasDb.length > 0) {
       AppState.dias = diasDb;
       AppState.diaActivoId = diasDb[0].id;
-      const { data: eventosDb } = await supabaseClient.from('eventos').select('*').order('orden', { ascending: true });
+      
+      const { data: eventosDb, error: errEventos } = await supabaseClient
+        .from('eventos')
+        .select('*')
+        .order('orden', { ascending: true });
+
+      if (errEventos) throw errEventos;
 
       AppState.eventosPorDia = {};
       diasDb.forEach(d => AppState.eventosPorDia[d.id] = []);
+
       (eventosDb || []).forEach(ev => {
-        if (!AppState.eventosPorDia[ev.dia_id]) AppState.eventosPorDia[ev.dia_id] = [];
-        AppState.eventosPorDia[ev.dia_id].push({ ...ev, categoria: ev.categoria || 'normal' });
+        if (!AppState.eventosPorDia[ev.dia_id]) {
+          AppState.eventosPorDia[ev.dia_id] = [];
+        }
+        AppState.eventosPorDia[ev.dia_id].push({
+          ...ev,
+          duracion_minutos: parseInt(ev.duracion_minutos, 10) || 5,
+          categoria: ev.categoria || 'normal'
+        });
       });
     }
   } catch (err) {
-    console.warn("Modo local activo:", err.message);
+    console.warn("Modo local activo o error de carga:", err.message);
   }
 }
 
 async function guardarCambiosEnSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) {
-    showToast("Cambios guardados en memoria local", "success");
+    showToast("Supabase no está configurado", "error");
     return;
   }
-  try {
-    showToast("Sincronizando todos los días con Supabase...", "info");
 
+  try {
+    showToast("Guardando agenda completa en la nube...", "info");
+
+    // 1. Guardar o actualizar la estructura de días
+    for (const dia of AppState.dias) {
+      const { error: errDia } = await supabaseClient.from('dias').upsert({
+        id: dia.id,
+        nombre: dia.nombre,
+        orden: dia.orden
+      });
+      if (errDia) throw errDia;
+    }
+
+    // 2. Guardar todas las actividades de cada día
     for (const dia of AppState.dias) {
       const eventos = AppState.eventosPorDia[dia.id] || [];
-      await supabaseClient.from('eventos').delete().eq('dia_id', dia.id);
+
+      // Limpiamos los eventos previos del día para evitar duplicados
+      const { error: delError } = await supabaseClient
+        .from('eventos')
+        .delete()
+        .eq('dia_id', dia.id);
+
+      if (delError) throw delError;
 
       if (eventos.length > 0) {
-        const inserts = eventos.map((e, index) => ({
+        const payload = eventos.map((ev, index) => ({
           dia_id: dia.id,
-          hora_inicio: e.hora_inicio,
-          duracion_minutos: e.duracion_minutos,
-          hora_fin: e.hora_fin,
-          tema: e.tema,
-          detalle: e.detalle || '',
-          responsable: e.responsable || '',
-          notas: e.notas || '',
-          categoria: e.categoria || 'normal',
+          hora_inicio: ev.hora_inicio,
+          duracion_minutos: parseInt(ev.duracion_minutos, 10) || 5,
+          hora_fin: ev.hora_fin,
+          tema: ev.tema || 'Actividad',
+          detalle: ev.detalle || '',
+          responsable: ev.responsable || '',
+          notas: ev.notas || '',
+          categoria: ev.categoria || 'normal',
           orden: index + 1
         }));
-        await supabaseClient.from('eventos').insert(inserts);
+
+        const { error: insError } = await supabaseClient
+          .from('eventos')
+          .insert(payload);
+
+        if (insError) throw insError;
       }
     }
-    showToast("¡Agenda completa sincronizada exitosamente!", "success");
+
+    showToast("¡Agenda sincronizada y guardada en Supabase!", "success");
   } catch (err) {
-    await AppDialog.alert({ title: "Error al guardar", message: err.message, type: "error" });
+    console.error("Error al guardar en Supabase:", err);
+    await AppDialog.alert({
+      title: "Error al Guardar",
+      message: err.message || "No se pudo sincronizar con la nube.",
+      type: "error"
+    });
   }
 }
 
@@ -304,7 +353,9 @@ async function agregarNuevoDia() {
   if (typeof supabaseClient !== 'undefined' && supabaseClient) {
     try {
       await supabaseClient.from('dias').insert([nuevoDia]);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Error al crear día:", e);
+    }
   }
 
   renderTabs();
@@ -341,6 +392,7 @@ async function eliminarDia(diaId) {
     delete AppState.eventosPorDia[diaId];
     AppState.diaActivoId = AppState.dias[0].id;
     if (typeof supabaseClient !== 'undefined' && supabaseClient) {
+      await supabaseClient.from('eventos').delete().eq('dia_id', diaId);
       await supabaseClient.from('dias').delete().eq('id', diaId);
     }
     renderTabs();
@@ -372,7 +424,7 @@ function renderAgenda() {
       <div class="text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
         <i data-lucide="calendar-x" class="w-12 h-12 text-slate-300 mx-auto mb-3"></i>
         <h4 class="text-base font-semibold text-slate-700">No hay actividades para este día</h4>
-        <p class="text-xs text-slate-400 mt-1">Sube el archivo Excel o agrega un bloque manualmente.</p>
+        <p class="text-xs text-slate-400 mt-1">Sube el archivo Excel o agrega un nuevo bloque.</p>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -517,7 +569,7 @@ function renderAgenda() {
   if (window.lucide) lucide.createIcons();
 }
 
-// DESPLAZAR TIEMPOS (SHIFT GENERAL)
+// DESPLAZAR TIEMPOS
 window.desplazarTiempos = function(minutos) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   if (eventos.length === 0) return;
@@ -528,6 +580,7 @@ window.desplazarTiempos = function(minutos) {
   renderAgenda();
   const modalShift = document.getElementById('modal-shift');
   if (modalShift) modalShift.classList.add('hidden');
+  marcarCambiosPendientes();
   showToast(`Agenda ajustada: ${minutos > 0 ? '+' : ''}${minutos} min`, "info");
 };
 
@@ -542,13 +595,17 @@ window.cambiarDuracionCascada = function(eventoId, nuevaDuracion) {
     AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos);
   }
   renderAgenda();
+  marcarCambiosPendientes();
   showToast("Horarios recalculados en cascada", "info");
 };
 
 window.actualizarCampo = function(eventoId, campo, valor) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   const evento = eventos.find(e => e.id === eventoId);
-  if (evento) evento[campo] = valor;
+  if (evento) {
+    evento[campo] = valor;
+    marcarCambiosPendientes();
+  }
 };
 
 window.confirmarEliminarEvento = async function(eventoId) {
@@ -572,9 +629,17 @@ window.confirmarEliminarEvento = async function(eventoId) {
       AppState.eventosPorDia[AppState.diaActivoId] = actualizados;
     }
     renderAgenda();
+    marcarCambiosPendientes();
     showToast("Bloque eliminado", "info");
   }
 };
+
+function marcarCambiosPendientes() {
+  const btnSaveDb = document.getElementById('btn-save-db');
+  if (btnSaveDb) {
+    btnSaveDb.classList.add('animate-pulse', 'ring-4', 'ring-amber-300');
+  }
+}
 
 function agregarNuevoBloque() {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
@@ -602,6 +667,7 @@ function agregarNuevoBloque() {
   eventos.push(nuevo);
   AppState.eventosPorDia[AppState.diaActivoId] = eventos;
   renderAgenda();
+  marcarCambiosPendientes();
   showToast("Nuevo bloque agregado", "success");
 }
 
@@ -726,13 +792,18 @@ function setupEventListeners() {
   if (btnAddRow) btnAddRow.onclick = agregarNuevoBloque;
 
   const btnSaveDb = document.getElementById('btn-save-db');
-  if (btnSaveDb) btnSaveDb.onclick = guardarCambiosEnSupabase;
+  if (btnSaveDb) {
+    btnSaveDb.onclick = async () => {
+      await guardarCambiosEnSupabase();
+      btnSaveDb.classList.remove('animate-pulse', 'ring-4', 'ring-amber-300');
+    };
+  }
 
   // Exportar Excel
   const btnExport = document.getElementById('btn-export-excel');
   if (btnExport) {
     btnExport.onclick = async () => {
-      showToast("Generando Excel con fórmulas y hojas múltiples...", "info");
+      showToast("Generando archivo Excel...", "info");
       if (typeof ExcelHandler !== 'undefined' && typeof ExcelHandler.exportAllDaysToExcel === 'function') {
         await ExcelHandler.exportAllDaysToExcel(AppState.dias, AppState.eventosPorDia);
       }
@@ -740,7 +811,7 @@ function setupEventListeners() {
     };
   }
 
-  // IMPORTACIÓN MULTI-HOJA SIN DUPLICADOS
+  // IMPORTACIÓN MULTI-HOJA CON GUARDADO EN SUPABASE
   const procesarArchivoExcel = async (file) => {
     if (!file) return;
     try {
@@ -751,7 +822,7 @@ function setupEventListeners() {
         hojasResultado = await ExcelHandler.parseExcelWorkbook(file);
       }
 
-      // Filtrar solo los números puros (1, 2, 3) para evitar duplicación de claves
+      // Filtrar los días procesados de forma numérica única (1, 2, 3)
       const diasProcesados = [1, 2, 3].filter(n => Array.isArray(hojasResultado[n]) && hojasResultado[n].length > 0);
 
       if (diasProcesados.length === 0) {
@@ -777,7 +848,6 @@ function setupEventListeners() {
         const diaId = `dia-${num}`;
         const rawEventos = hojasResultado[num];
 
-        // Mapear eventos garantizando dia_id y orden secuencial
         const eventosLimpios = rawEventos.map((ev, idx) => ({
           ...ev,
           dia_id: diaId,
@@ -792,14 +862,24 @@ function setupEventListeners() {
       renderTabs();
       renderAgenda();
 
-      await AppDialog.alert({
-        title: "¡Importación Exitosa!",
-        message: `Se cargaron las actividades correctamente:\n\n• ${resumen.join('\n• ')}`,
+      // Diálogo de confirmación para persistir de inmediato en la nube
+      const guardarEnNube = await AppDialog.confirm({
+        title: "¡Archivo Importado con Éxito!",
+        message: `Se detectaron las siguientes actividades:\n\n• ${resumen.join('\n• ')}\n\n¿Deseas guardar permanentemente toda la agenda en la base de datos (nube)?`,
+        confirmText: "Guardar en la Nube",
+        cancelText: "Solo Vista Previa",
         type: "info"
       });
 
+      if (guardarEnNube) {
+        await guardarCambiosEnSupabase();
+      } else {
+        marcarCambiosPendientes();
+        showToast("Agenda en memoria local. Recuerda presionar 'Guardar' para no perder cambios.", "info");
+      }
+
     } catch (err) {
-      console.error(err);
+      console.error("Error al procesar Excel:", err);
       await AppDialog.alert({
         title: "Error al leer Excel",
         message: err.message || "Ocurrió un error al procesar el archivo.",
