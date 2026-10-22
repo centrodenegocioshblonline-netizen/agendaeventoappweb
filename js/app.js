@@ -569,6 +569,18 @@ function renderAgenda() {
   if (window.lucide) lucide.createIcons();
 }
 
+// ACTUALIZAR CAMPO DE UN EVENTO
+window.actualizarCampo = function(eventoId, campo, valor) {
+  const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
+  // Usamos == (dos iguales) porque a veces el ID de Supabase viene como número y en el HTML como string
+  const evento = eventos.find(e => e.id == eventoId);
+  if (evento) {
+    evento[campo] = valor;
+    marcarCambiosPendientes();
+  }
+};
+
+
 // DESPLAZAR TIEMPOS
 window.desplazarTiempos = function(minutos) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
