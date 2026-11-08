@@ -1,5 +1,5 @@
 /**
- * js/events.js - Gestor de la Pantalla Inicial de Eventos
+ * js/events.js - Gestor de la Pantalla Inicial de Eventos (SPA)
  */
 
 const EventsState = {
@@ -16,10 +16,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       EventsState.isAdmin = AuthManager.isAdmin;
     }
 
-    actualizarUIEventos();
-    await cargarEventosDeSupabase();
-    renderEventosGrid();
-    setupEventsListeners();
+    actualizarUIEventosGlobal();
+    setupEventsListenersGlobal();
+
+    // Comprobar si ya había un evento abierto previamente en localStorage
+    const savedEventId = localStorage.getItem('current_event_id');
+    if (savedEventId) {
+      // Si hay evento activo, abrimos directo la agenda
+      abrirVistaAgenda(savedEventId);
+    } else {
+      // Si no, mostramos el selector de eventos
+      await cargarEventosDeSupabase();
+      renderEventosGrid();
+    }
   } catch (error) {
     console.error("Error al inicializar la pantalla de eventos:", error);
   }
@@ -90,22 +99,45 @@ function renderEventosGrid() {
 }
 
 function seleccionarEvento(eventId) {
-  // Guardamos el ID del evento activo en localStorage para que app.js lo lea
   localStorage.setItem('current_event_id', eventId);
-  window.location.href = 'agenda.html'; // O la ruta donde tengas tu archivo de la agenda minuto a minuto
+  abrirVistaAgenda(eventId);
 }
 
-function actualizarUIEventos() {
-  const btnCrear = document.getElementById('btn-create-event');
-  const txtAuthBtn = document.getElementById('txt-auth-btn');
+function abrirVistaAgenda(eventId) {
+  // Ocultar selector y mostrar detalle de agenda en la misma página
+  const viewSelector = document.getElementById('view-events-selector');
+  const viewAgenda = document.getElementById('view-agenda-detail');
+  
+  if (viewSelector) viewSelector.classList.add('hidden');
+  if (viewAgenda) viewAgenda.classList.remove('hidden');
+
+  // Buscar nombre del evento para ponerlo en el header de la agenda
+  const eventoActual = EventsState.eventsList.find(e => e.id == eventId);
+  const titleEl = document.getElementById('current-event-title');
+  if (titleEl && eventoActual) {
+    titleEl.innerText = eventoActual.name;
+  }
+
+  // Disparar la carga de datos en app.js si la función existe
+  if (typeof cargarDatosDeSupabase === 'function') {
+    cargarDatosDeSupabase().then(() => {
+      if (typeof renderTabs === 'function') renderTabs();
+      if (typeof renderAgenda === 'function') renderAgenda();
+    });
+  }
+}
+
+function actualizarUIEventosGlobal() {
+  const btnCrear = document.getElementById('btn-open-create-modal');
+  const txtAuthBtnGlobal = document.getElementById('txt-auth-btn-global');
 
   if (btnCrear) {
     if (EventsState.isAdmin) btnCrear.classList.remove('hidden');
     else btnCrear.classList.add('hidden');
   }
 
-  if (txtAuthBtn) {
-    txtAuthBtn.innerText = EventsState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
+  if (txtAuthBtnGlobal) {
+    txtAuthBtnGlobal.innerText = EventsState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
   }
 }
 
@@ -121,8 +153,8 @@ async function crearNuevoEvento(nombre, fecha, descripcion) {
     if (error) throw error;
 
     if (data && data[0]) {
-      // Creamos por defecto el Día 1 para este evento nuevo
       const nuevoEventoId = data[0].id;
+      // Crear automáticamente el Día 1 por defecto para este evento
       await supabaseClient.from('dias').insert([{
         event_id: nuevoEventoId,
         id: 'dia-' + Date.now(),
@@ -130,9 +162,12 @@ async function crearNuevoEvento(nombre, fecha, descripcion) {
         orden: 1
       }]);
 
-      showToast("¡Evento creado con éxito!", "success");
+      if (typeof showToast === 'function') showToast("¡Evento creado con éxito!", "success");
       await cargarEventosDeSupabase();
       renderEventosGrid();
+      
+      // Abrir directamente el evento recién creado
+      seleccionarEvento(nuevoEventoId);
     }
   } catch (err) {
     console.error("Error al crear evento:", err);
@@ -145,7 +180,7 @@ window.confirmarEliminarEventoGlobal = async function(eventId) {
   try {
     const { error } = await supabaseClient.from('events').delete().eq('id', eventId);
     if (error) throw error;
-    showToast("Evento eliminado", "info");
+    if (typeof showToast === 'function') showToast("Evento eliminado", "info");
     await cargarEventosDeSupabase();
     renderEventosGrid();
   } catch (err) {
@@ -153,11 +188,13 @@ window.confirmarEliminarEventoGlobal = async function(eventId) {
   }
 };
 
-function setupEventsListeners() {
+function setupEventsListenersGlobal() {
   const modal = document.getElementById('modal-create-event');
-  const btnOpenModal = document.getElementById('btn-create-event');
+  const btnOpenModal = document.getElementById('btn-open-create-modal');
   const btnCloseModal = document.getElementById('btn-close-event-modal');
   const form = document.getElementById('form-create-event');
+  const btnBack = document.getElementById('btn-back-to-events');
+  const btnAuthGlobal = document.getElementById('btn-auth-toggle-global');
 
   if (btnOpenModal && modal) btnOpenModal.onclick = () => modal.classList.remove('hidden');
   if (btnCloseModal && modal) btnCloseModal.onclick = () => modal.classList.add('hidden');
@@ -172,6 +209,33 @@ function setupEventsListeners() {
       await crearNuevoEvento(nombre, fecha, desc);
       modal.classList.add('hidden');
       form.reset();
+    };
+  }
+
+  // Botón para volver a la lista de eventos desde la agenda
+  if (btnBack) {
+    btnBack.onclick = () => {
+      localStorage.removeItem('current_event_id');
+      document.getElementById('view-agenda-detail').classList.add('hidden');
+      document.getElementById('view-events-selector').classList.remove('hidden');
+      cargarEventosDeSupabase().then(() => renderEventosGrid());
+    };
+  }
+
+  // Manejo de Auth global en el selector de eventos
+  if (btnAuthGlobal) {
+    btnAuthGlobal.onclick = async () => {
+      if (EventsState.isAdmin) {
+        if (window.AuthManager) await AuthManager.logout();
+        EventsState.isAdmin = false;
+        actualizarUIEventosGlobal();
+        renderEventosGrid();
+        if (typeof showToast === 'function') showToast("Sesión cerrada", "info");
+      } else {
+        // Abrir el modal de login de app.js
+        const modalLogin = document.getElementById('modal-login');
+        if (modalLogin) modalLogin.classList.remove('hidden');
+      }
     };
   }
 }
