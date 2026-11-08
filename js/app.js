@@ -1,7 +1,10 @@
 /**
  * js/app.js - ARCHIVO COMPLETO Y ACTUALIZADO
- * Controlador Maestro con Sincronización Total a Supabase y Multi-Hoja
+ * Controlador Maestro con Sincronización Total a Supabase y Multi-Hoja por Evento
  */
+
+// Obtener el ID del evento seleccionado
+const currentEventId = localStorage.getItem('current_event_id');
 
 // 1. SISTEMA DE DIÁLOGOS ESTILIZADOS
 const AppDialog = {
@@ -120,9 +123,9 @@ const AppDialog = {
 // 2. ESTADO GLOBAL DE LA APLICACIÓN
 const AppState = {
   dias: [
-    { id: 'dia-1', nombre: 'Día 1', orden: 1 },
-    { id: 'dia-2', nombre: 'Día 2', orden: 2 },
-    { id: 'dia-3', nombre: 'Día 3', orden: 3 },
+    { id: 'dia-1', event_id: currentEventId, nombre: 'Día 1', orden: 1 },
+    { id: 'dia-2', event_id: currentEventId, nombre: 'Día 2', orden: 2 },
+    { id: 'dia-3', event_id: currentEventId, nombre: 'Día 3', orden: 3 },
   ],
   diaActivoId: 'dia-1',
   filtroTexto: '',
@@ -181,7 +184,7 @@ function iniciarRelojEnVivo() {
 // SINCRONIZACIÓN CON SUPABASE
 async function cargarDatosDeSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
-  
+
   if (!currentEventId) {
     window.location.href = 'index.html'; // Si no hay evento, regresa a la selección
     return;
@@ -191,7 +194,7 @@ async function cargarDatosDeSupabase() {
     const { data: diasDb, error: errDias } = await supabaseClient
       .from('dias')
       .select('*')
-      .eq('event_id', currentEventId) // FILTRADO ESTRICTO POR EVENTO
+      .eq('event_id', currentEventId)
       .order('orden', { ascending: true });
 
     if (errDias) throw errDias;
@@ -203,7 +206,7 @@ async function cargarDatosDeSupabase() {
       const { data: eventosDb, error: errEventos } = await supabaseClient
         .from('eventos')
         .select('*')
-        .eq('event_id', currentEventId) // FILTRADO ESTRICTO POR EVENTO
+        .eq('event_id', currentEventId)
         .order('orden', { ascending: true });
 
       if (errEventos) throw errEventos;
@@ -241,18 +244,18 @@ async function guardarCambiosEnSupabase() {
   try {
     showToast("Guardando agenda completa en la nube...", "info");
 
-    // 1. Guardar o actualizar la estructura de días con su event_id
+    // 1. Guardar o actualizar la estructura de días
     for (const dia of AppState.dias) {
       const { error: errDia } = await supabaseClient.from('dias').upsert({
         id: dia.id,
-        event_id: currentEventId, // ASEGURA EL VÍNCULO
+        event_id: currentEventId,
         nombre: dia.nombre,
         orden: dia.orden
       });
       if (errDia) throw errDia;
     }
 
-    // 2. Guardar todas las actividades de cada día con su event_id
+    // 2. Guardar todas las actividades de cada día
     for (const dia of AppState.dias) {
       const eventos = AppState.eventosPorDia[dia.id] || [];
 
@@ -265,7 +268,7 @@ async function guardarCambiosEnSupabase() {
 
       if (eventos.length > 0) {
         const payload = eventos.map((ev, index) => ({
-          event_id: currentEventId, // ASEGURA EL VÍNCULO
+          event_id: currentEventId,
           dia_id: dia.id,
           hora_inicio: ev.hora_inicio,
           duracion_minutos: parseInt(ev.duracion_minutos, 10) || 5,
@@ -296,6 +299,7 @@ async function guardarCambiosEnSupabase() {
     });
   }
 }
+
 // RENDER PESTAÑAS DE DÍAS
 function renderTabs() {
   const container = document.getElementById('tabs-container');
@@ -359,7 +363,7 @@ async function agregarNuevoDia() {
   const nuevoId = 'dia-' + Date.now();
   const nuevoDia = { 
     id: nuevoId, 
-    event_id: currentEventId, // ASOCIADO AL EVENTO ACTUAL
+    event_id: currentEventId,
     nombre: `Día ${num}`, 
     orden: num 
   };
@@ -449,7 +453,6 @@ function renderAgenda() {
     return;
   }
 
-  // Agrupación de actividades simultáneas
   const grupos = [];
   eventos.forEach(ev => {
     let grupo = grupos.find(g => g.hora_inicio === ev.hora_inicio);
@@ -590,14 +593,12 @@ function renderAgenda() {
 // ACTUALIZAR CAMPO DE UN EVENTO
 window.actualizarCampo = function(eventoId, campo, valor) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
-  // Usamos == (dos iguales) porque a veces el ID de Supabase viene como número y en el HTML como string
   const evento = eventos.find(e => e.id == eventoId);
   if (evento) {
     evento[campo] = valor;
     marcarCambiosPendientes();
   }
 };
-
 
 // DESPLAZAR TIEMPOS
 window.desplazarTiempos = function(minutos) {
@@ -615,7 +616,6 @@ window.desplazarTiempos = function(minutos) {
 };
 
 // CASCADA DE DURACIÓN
-// En js/app.js:
 window.cambiarDuracionCascada = function(eventoId, nuevaDuracion) {
   const eventos = AppState.eventosPorDia[AppState.diaActivoId] || [];
   const idx = eventos.findIndex(e => e.id === eventoId);
@@ -646,10 +646,8 @@ window.confirmarEliminarEvento = async function(eventoId) {
   });
 
   if (confirmado) {
-    // Si eliminamos una actividad que era simultánea con otra, la otra conserva su hora
     eventos.splice(idx, 1);
     
-    // Recalcular a partir del punto de eliminación
     if (typeof TimeCalc !== 'undefined' && typeof TimeCalc.recalculateCascade === 'function') {
       AppState.eventosPorDia[AppState.diaActivoId] = TimeCalc.recalculateCascade(eventos, idx);
     }
@@ -659,7 +657,6 @@ window.confirmarEliminarEvento = async function(eventoId) {
     showToast("Bloque eliminado", "info");
   }
 };
-
 
 function marcarCambiosPendientes() {
   const btnSaveDb = document.getElementById('btn-save-db');
@@ -679,6 +676,7 @@ function agregarNuevoBloque() {
 
   const nuevo = {
     id: 'local_' + Date.now(),
+    event_id: currentEventId,
     dia_id: AppState.diaActivoId,
     hora_inicio: horaInicio,
     duracion_minutos: 30,
@@ -702,7 +700,7 @@ function actualizarModoUI() {
   const badgeModo = document.getElementById('badge-modo');
   const panelAdmin = document.getElementById('panel-admin-tools');
   const txtAuthBtn = document.getElementById('txt-auth-btn');
-  const btnExport = document.getElementById('btn-export-excel'); // <-- Agrega esta línea
+  const btnExport = document.getElementById('btn-export-excel');
 
   if (badgeModo) {
     if (AppState.isAdmin) {
@@ -719,7 +717,6 @@ function actualizarModoUI() {
     else panelAdmin.classList.add('hidden');
   }
 
-  // AQUÍ ES DONDE SE OCULTA / MUESTRA:
   if (btnExport) {
     if (AppState.isAdmin) {
       btnExport.classList.remove('hidden');
@@ -734,7 +731,6 @@ function actualizarModoUI() {
     txtAuthBtn.innerText = AppState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
   }
 }
-
 
 // 4. LISTENERS DE EVENTOS Y PARSER MULTI-HOJA
 function setupEventListeners() {
@@ -862,7 +858,6 @@ function setupEventListeners() {
         hojasResultado = await ExcelHandler.parseExcelWorkbook(file);
       }
 
-      // Filtrar los días procesados de forma numérica única (1, 2, 3)
       const diasProcesados = [1, 2, 3].filter(n => Array.isArray(hojasResultado[n]) && hojasResultado[n].length > 0);
 
       if (diasProcesados.length === 0) {
@@ -874,9 +869,10 @@ function setupEventListeners() {
         return;
       }
 
-      // Reinicializar listas con los días importados
+      // Reinicializar listas con los días importados y su event_id
       AppState.dias = diasProcesados.map(num => ({
         id: `dia-${num}`,
+        event_id: currentEventId,
         nombre: `Día ${num}`,
         orden: num
       }));
@@ -903,7 +899,6 @@ function setupEventListeners() {
       renderTabs();
       renderAgenda();
 
-      // Diálogo de confirmación para persistir de inmediato en la nube
       const guardarEnNube = await AppDialog.confirm({
         title: "¡Archivo Importado con Éxito!",
         message: `Se detectaron las siguientes actividades:\n\n• ${resumen.join('\n• ')}\n\n¿Deseas guardar permanentemente toda la agenda en la base de datos (nube)?`,
