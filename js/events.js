@@ -57,7 +57,7 @@ function renderEventosGrid() {
       <div class="col-span-full text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
         <i data-lucide="calendar-off" class="w-12 h-12 text-slate-300 mx-auto mb-3"></i>
         <h4 class="text-base font-semibold text-slate-700">No hay eventos creados</h4>
-        <p class="text-xs text-slate-400 mt-1">Inicia sesión como administrador para crear un nuevo evento y comenzar.</p>
+        <p class="text-xs text-slate-400 mt-1">Inserta los eventos (STS, FSL, Evento Especial) desde el SQL Editor de Supabase.</p>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -75,11 +75,17 @@ function renderEventosGrid() {
           <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100">
             <i data-lucide="calendar" class="w-3.5 h-3.5"></i> ${ev.date || 'Sin fecha'}
           </span>
-          ${EventsState.isAdmin ? `
-            <button onclick="event.stopPropagation(); confirmarEliminarEventoGlobal('${ev.id}')" class="text-slate-300 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition" title="Eliminar Evento">
-              <i data-lucide="trash-2" class="w-4 h-4"></i>
+          <div class="flex items-center gap-1">
+            <!-- Botón para renombrar cualquier evento al vuelo -->
+            <button onclick="event.stopPropagation(); renombrarEventoCustom('${ev.id}', '${escapeHtml(ev.name)}')" class="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition" title="Renombrar Evento">
+              <i data-lucide="edit-3" class="w-4 h-4"></i>
             </button>
-          ` : ''}
+            ${EventsState.isAdmin ? `
+              <button onclick="event.stopPropagation(); confirmarEliminarEventoGlobal('${ev.id}')" class="text-slate-300 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition" title="Eliminar Evento">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            ` : ''}
+          </div>
         </div>
         <h3 class="font-bold text-slate-900 text-lg group-hover:text-brand-600 transition mb-1">${escapeHtml(ev.name)}</h3>
         <p class="text-xs text-slate-500 line-clamp-2">${escapeHtml(ev.description || 'Sin descripción detallada.')}</p>
@@ -123,54 +129,30 @@ function abrirVistaAgenda(eventId) {
 }
 
 function actualizarUIEventosGlobal() {
-  const btnCrear = document.getElementById('btn-open-create-modal');
   const txtAuthBtnGlobal = document.getElementById('txt-auth-btn-global');
-
-  if (btnCrear) {
-    if (EventsState.isAdmin) {
-      btnCrear.classList.remove('hidden');
-      btnCrear.classList.add('inline-flex');
-    } else {
-      btnCrear.classList.add('hidden');
-      btnCrear.classList.remove('inline-flex');
-    }
-  }
-
   if (txtAuthBtnGlobal) {
     txtAuthBtnGlobal.innerText = EventsState.isAdmin ? "Cerrar Sesión" : "Acceso Admin";
   }
 }
 
-async function crearNuevoEvento(nombre, fecha, descripcion) {
-  if (!supabaseClient) return;
+window.renombrarEventoCustom = async function(eventId, nombreActual) {
+  const nuevoNombre = prompt("Escribe el nuevo nombre para el evento:", nombreActual);
+  if (!nuevoNombre || nuevoNombre.trim() === "") return;
+
   try {
-    const { data, error } = await supabaseClient.from('events').insert([{
-      name: nombre,
-      date: fecha,
-      description: descripcion
-    }]).select();
+    const { error } = await supabaseClient
+      .from('events')
+      .update({ name: nuevoNombre.trim() })
+      .eq('id', eventId);
 
     if (error) throw error;
-
-    if (data && data[0]) {
-      const nuevoEventoId = data[0].id;
-      await supabaseClient.from('dias').insert([{
-        event_id: nuevoEventoId,
-        id: 'dia-' + Date.now(),
-        nombre: 'Día 1',
-        orden: 1
-      }]);
-
-      if (typeof showToast === 'function') showToast("¡Evento creado con éxito!", "success");
-      await cargarEventosDeSupabase();
-      renderEventosGrid();
-      seleccionarEvento(nuevoEventoId);
-    }
+    if (typeof showToast === 'function') showToast("¡Evento renombrado con éxito!", "success");
+    await cargarEventosDeSupabase();
+    renderEventosGrid();
   } catch (err) {
-    console.error("Error al crear evento:", err);
-    alert("No se pudo crear el evento: " + err.message);
+    alert("Error al renombrar: " + err.message);
   }
-}
+};
 
 window.confirmarEliminarEventoGlobal = async function(eventId) {
   if (!confirm("¿Estás seguro de eliminar este evento completo y todas sus agendas asociadas?")) return;
@@ -186,35 +168,9 @@ window.confirmarEliminarEventoGlobal = async function(eventId) {
 };
 
 function setupEventsListenersGlobal() {
-  const modal = document.getElementById('modal-create-event');
-  const btnOpenModal = document.getElementById('btn-open-create-modal');
-  const btnCloseModal = document.getElementById('btn-close-event-modal');
-  const form = document.getElementById('form-create-event');
   const btnBack = document.getElementById('btn-back-to-events');
   const btnAuthGlobal = document.getElementById('btn-auth-toggle-global');
-  const btnDemoLogin = document.getElementById('btn-login-demo');
-  const formLogin = document.getElementById('form-login');
   const modalLogin = document.getElementById('modal-login');
-
-  if (btnOpenModal && modal) {
-    btnOpenModal.onclick = () => modal.classList.remove('hidden');
-  }
-  if (btnCloseModal && modal) {
-    btnCloseModal.onclick = () => modal.classList.add('hidden');
-  }
-
-  if (form) {
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      const nombre = document.getElementById('event-name').value;
-      const fecha = document.getElementById('event-date').value;
-      const desc = document.getElementById('event-desc').value;
-
-      await crearNuevoEvento(nombre, fecha, desc);
-      modal.classList.add('hidden');
-      form.reset();
-    };
-  }
 
   if (btnBack) {
     btnBack.onclick = () => {
@@ -225,7 +181,6 @@ function setupEventsListenersGlobal() {
     };
   }
 
-  // Manejo de Auth global en el selector de eventos
   if (btnAuthGlobal) {
     btnAuthGlobal.onclick = async () => {
       if (EventsState.isAdmin) {
@@ -237,33 +192,6 @@ function setupEventsListenersGlobal() {
       } else {
         if (modalLogin) modalLogin.classList.remove('hidden');
       }
-    };
-  }
-
-  // Sincronizar estado al usar el login demo o formulario normal
-  if (btnDemoLogin) {
-    const originalClick = btnDemoLogin.onclick;
-    btnDemoLogin.onclick = async () => {
-      if (typeof originalClick === 'function') await originalClick();
-      EventsState.isAdmin = true;
-      actualizarUIEventosGlobal();
-      renderEventosGrid();
-      if (modalLogin) modalLogin.classList.add('hidden');
-    };
-  }
-
-  if (formLogin) {
-    const originalSubmit = formLogin.onsubmit;
-    formLogin.onsubmit = async (e) => {
-      if (typeof originalSubmit === 'function') await originalSubmit(e);
-      // Forzar actualización de admin tras loguearse con éxito
-      setTimeout(() => {
-        if (window.AuthManager && window.AuthManager.isAdmin) {
-          EventsState.isAdmin = true;
-          actualizarUIEventosGlobal();
-          renderEventosGrid();
-        }
-      }, 500);
     };
   }
 }
