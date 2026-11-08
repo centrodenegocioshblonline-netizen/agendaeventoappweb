@@ -162,10 +162,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     actualizarModoUI();
-    await cargarDatosDeSupabase();
 
-    renderTabs();
-    renderAgenda();
+    // Solo cargamos y renderizamos la agenda si realmente hay un evento seleccionado
+    const currentEventId = localStorage.getItem('current_event_id');
+    if (currentEventId) {
+      await cargarDatosDeSupabase();
+      renderTabs();
+      renderAgenda();
+    } else {
+      // Si no hay evento, aseguramos que se vea el selector principal y se oculte la agenda
+      const viewAgenda = document.getElementById('view-agenda-detail');
+      const viewSelector = document.getElementById('view-events-selector');
+      if (viewAgenda) viewAgenda.classList.add('hidden');
+      if (viewSelector) viewSelector.classList.remove('hidden');
+    }
+
     setupEventListeners();
   } catch (error) {
     console.error("Error durante inicialización:", error);
@@ -190,8 +201,14 @@ function iniciarRelojEnVivo() {
 async function cargarDatosDeSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
   
+  // 1. Leemos el ID actual directo de la persistencia
+  const currentEventId = localStorage.getItem('current_event_id');
+
+  // 2. Si no hay evento seleccionado, limpiamos los estados y salimos de inmediato
   if (!currentEventId) {
-    console.warn("Modo local o sin evento seleccionado.");
+    AppState.dias = [];
+    AppState.eventosPorDia = {};
+    AppState.diaActivoId = null;
     return;
   }
 
@@ -203,6 +220,10 @@ async function cargarDatosDeSupabase() {
       .order('orden', { ascending: true });
 
     if (errDias) throw errDias;
+
+    // Inicializamos por defecto los contenedores vacíos por seguridad
+    AppState.dias = [];
+    AppState.eventosPorDia = {};
 
     if (diasDb && diasDb.length > 0) {
       AppState.dias = diasDb;
@@ -216,7 +237,6 @@ async function cargarDatosDeSupabase() {
 
       if (errEventos) throw errEventos;
 
-      AppState.eventosPorDia = {};
       diasDb.forEach(d => AppState.eventosPorDia[d.id] = []);
 
       (eventosDb || []).forEach(ev => {
