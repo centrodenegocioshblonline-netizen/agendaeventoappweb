@@ -181,10 +181,17 @@ function iniciarRelojEnVivo() {
 // SINCRONIZACIÓN CON SUPABASE
 async function cargarDatosDeSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
+  
+  if (!currentEventId) {
+    window.location.href = 'index.html'; // Si no hay evento, regresa a la selección
+    return;
+  }
+
   try {
     const { data: diasDb, error: errDias } = await supabaseClient
       .from('dias')
       .select('*')
+      .eq('event_id', currentEventId) // FILTRADO ESTRICTO POR EVENTO
       .order('orden', { ascending: true });
 
     if (errDias) throw errDias;
@@ -196,6 +203,7 @@ async function cargarDatosDeSupabase() {
       const { data: eventosDb, error: errEventos } = await supabaseClient
         .from('eventos')
         .select('*')
+        .eq('event_id', currentEventId) // FILTRADO ESTRICTO POR EVENTO
         .order('orden', { ascending: true });
 
       if (errEventos) throw errEventos;
@@ -225,24 +233,29 @@ async function guardarCambiosEnSupabase() {
     return;
   }
 
+  if (!currentEventId) {
+    showToast("Error: No hay un evento seleccionado", "error");
+    return;
+  }
+
   try {
     showToast("Guardando agenda completa en la nube...", "info");
 
-    // 1. Guardar o actualizar la estructura de días
+    // 1. Guardar o actualizar la estructura de días con su event_id
     for (const dia of AppState.dias) {
       const { error: errDia } = await supabaseClient.from('dias').upsert({
         id: dia.id,
+        event_id: currentEventId, // ASEGURA EL VÍNCULO
         nombre: dia.nombre,
         orden: dia.orden
       });
       if (errDia) throw errDia;
     }
 
-    // 2. Guardar todas las actividades de cada día
+    // 2. Guardar todas las actividades de cada día con su event_id
     for (const dia of AppState.dias) {
       const eventos = AppState.eventosPorDia[dia.id] || [];
 
-      // Limpiamos los eventos previos del día para evitar duplicados
       const { error: delError } = await supabaseClient
         .from('eventos')
         .delete()
@@ -252,6 +265,7 @@ async function guardarCambiosEnSupabase() {
 
       if (eventos.length > 0) {
         const payload = eventos.map((ev, index) => ({
+          event_id: currentEventId, // ASEGURA EL VÍNCULO
           dia_id: dia.id,
           hora_inicio: ev.hora_inicio,
           duracion_minutos: parseInt(ev.duracion_minutos, 10) || 5,
@@ -282,7 +296,6 @@ async function guardarCambiosEnSupabase() {
     });
   }
 }
-
 // RENDER PESTAÑAS DE DÍAS
 function renderTabs() {
   const container = document.getElementById('tabs-container');
@@ -344,7 +357,12 @@ function renderTabs() {
 async function agregarNuevoDia() {
   const num = AppState.dias.length + 1;
   const nuevoId = 'dia-' + Date.now();
-  const nuevoDia = { id: nuevoId, nombre: `Día ${num}`, orden: num };
+  const nuevoDia = { 
+    id: nuevoId, 
+    event_id: currentEventId, // ASOCIADO AL EVENTO ACTUAL
+    nombre: `Día ${num}`, 
+    orden: num 
+  };
 
   AppState.dias.push(nuevoDia);
   AppState.eventosPorDia[nuevoId] = [];
@@ -872,6 +890,7 @@ function setupEventListeners() {
 
         const eventosLimpios = rawEventos.map((ev, idx) => ({
           ...ev,
+          event_id: currentEventId,
           dia_id: diaId,
           orden: idx + 1
         }));
