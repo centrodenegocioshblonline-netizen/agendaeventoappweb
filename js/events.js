@@ -22,10 +22,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Comprobar si ya había un evento abierto previamente en localStorage
     const savedEventId = localStorage.getItem('current_event_id');
     if (savedEventId) {
-      // Si hay evento activo, abrimos directo la agenda
       abrirVistaAgenda(savedEventId);
     } else {
-      // Si no, mostramos el selector de eventos
       await cargarEventosDeSupabase();
       renderEventosGrid();
     }
@@ -59,7 +57,7 @@ function renderEventosGrid() {
       <div class="col-span-full text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
         <i data-lucide="calendar-off" class="w-12 h-12 text-slate-300 mx-auto mb-3"></i>
         <h4 class="text-base font-semibold text-slate-700">No hay eventos creados</h4>
-        <p class="text-xs text-slate-400 mt-1">El administrador puede crear un nuevo evento para comenzar.</p>
+        <p class="text-xs text-slate-400 mt-1">Inicia sesión como administrador para crear un nuevo evento y comenzar.</p>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -104,21 +102,18 @@ function seleccionarEvento(eventId) {
 }
 
 function abrirVistaAgenda(eventId) {
-  // Ocultar selector y mostrar detalle de agenda en la misma página
   const viewSelector = document.getElementById('view-events-selector');
   const viewAgenda = document.getElementById('view-agenda-detail');
   
   if (viewSelector) viewSelector.classList.add('hidden');
   if (viewAgenda) viewAgenda.classList.remove('hidden');
 
-  // Buscar nombre del evento para ponerlo en el header de la agenda
   const eventoActual = EventsState.eventsList.find(e => e.id == eventId);
   const titleEl = document.getElementById('current-event-title');
   if (titleEl && eventoActual) {
     titleEl.innerText = eventoActual.name;
   }
 
-  // Disparar la carga de datos en app.js si la función existe
   if (typeof cargarDatosDeSupabase === 'function') {
     cargarDatosDeSupabase().then(() => {
       if (typeof renderTabs === 'function') renderTabs();
@@ -132,8 +127,13 @@ function actualizarUIEventosGlobal() {
   const txtAuthBtnGlobal = document.getElementById('txt-auth-btn-global');
 
   if (btnCrear) {
-    if (EventsState.isAdmin) btnCrear.classList.remove('hidden');
-    else btnCrear.classList.add('hidden');
+    if (EventsState.isAdmin) {
+      btnCrear.classList.remove('hidden');
+      btnCrear.classList.add('inline-flex');
+    } else {
+      btnCrear.classList.add('hidden');
+      btnCrear.classList.remove('inline-flex');
+    }
   }
 
   if (txtAuthBtnGlobal) {
@@ -154,7 +154,6 @@ async function crearNuevoEvento(nombre, fecha, descripcion) {
 
     if (data && data[0]) {
       const nuevoEventoId = data[0].id;
-      // Crear automáticamente el Día 1 por defecto para este evento
       await supabaseClient.from('dias').insert([{
         event_id: nuevoEventoId,
         id: 'dia-' + Date.now(),
@@ -165,8 +164,6 @@ async function crearNuevoEvento(nombre, fecha, descripcion) {
       if (typeof showToast === 'function') showToast("¡Evento creado con éxito!", "success");
       await cargarEventosDeSupabase();
       renderEventosGrid();
-      
-      // Abrir directamente el evento recién creado
       seleccionarEvento(nuevoEventoId);
     }
   } catch (err) {
@@ -195,9 +192,16 @@ function setupEventsListenersGlobal() {
   const form = document.getElementById('form-create-event');
   const btnBack = document.getElementById('btn-back-to-events');
   const btnAuthGlobal = document.getElementById('btn-auth-toggle-global');
+  const btnDemoLogin = document.getElementById('btn-login-demo');
+  const formLogin = document.getElementById('form-login');
+  const modalLogin = document.getElementById('modal-login');
 
-  if (btnOpenModal && modal) btnOpenModal.onclick = () => modal.classList.remove('hidden');
-  if (btnCloseModal && modal) btnCloseModal.onclick = () => modal.classList.add('hidden');
+  if (btnOpenModal && modal) {
+    btnOpenModal.onclick = () => modal.classList.remove('hidden');
+  }
+  if (btnCloseModal && modal) {
+    btnCloseModal.onclick = () => modal.classList.add('hidden');
+  }
 
   if (form) {
     form.onsubmit = async (e) => {
@@ -212,7 +216,6 @@ function setupEventsListenersGlobal() {
     };
   }
 
-  // Botón para volver a la lista de eventos desde la agenda
   if (btnBack) {
     btnBack.onclick = () => {
       localStorage.removeItem('current_event_id');
@@ -232,10 +235,35 @@ function setupEventsListenersGlobal() {
         renderEventosGrid();
         if (typeof showToast === 'function') showToast("Sesión cerrada", "info");
       } else {
-        // Abrir el modal de login de app.js
-        const modalLogin = document.getElementById('modal-login');
         if (modalLogin) modalLogin.classList.remove('hidden');
       }
+    };
+  }
+
+  // Sincronizar estado al usar el login demo o formulario normal
+  if (btnDemoLogin) {
+    const originalClick = btnDemoLogin.onclick;
+    btnDemoLogin.onclick = async () => {
+      if (typeof originalClick === 'function') await originalClick();
+      EventsState.isAdmin = true;
+      actualizarUIEventosGlobal();
+      renderEventosGrid();
+      if (modalLogin) modalLogin.classList.add('hidden');
+    };
+  }
+
+  if (formLogin) {
+    const originalSubmit = formLogin.onsubmit;
+    formLogin.onsubmit = async (e) => {
+      if (typeof originalSubmit === 'function') await originalSubmit(e);
+      // Forzar actualización de admin tras loguearse con éxito
+      setTimeout(() => {
+        if (window.AuthManager && window.AuthManager.isAdmin) {
+          EventsState.isAdmin = true;
+          actualizarUIEventosGlobal();
+          renderEventosGrid();
+        }
+      }, 500);
     };
   }
 }
