@@ -4,7 +4,12 @@
  */
 
 // Obtener el ID del evento seleccionado
+// Obtener el ID del evento seleccionado de forma segura
 const currentEventId = localStorage.getItem('current_event_id');
+
+if (!currentEventId) {
+  console.warn("No hay un evento seleccionado en localStorage.");
+}
 
 // 1. SISTEMA DE DIÁLOGOS ESTILIZADOS
 const AppDialog = {
@@ -184,9 +189,9 @@ function iniciarRelojEnVivo() {
 // SINCRONIZACIÓN CON SUPABASE
 async function cargarDatosDeSupabase() {
   if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
-
+  
   if (!currentEventId) {
-    window.location.href = 'index.html'; // Si no hay evento, regresa a la selección
+    console.warn("Modo local o sin evento seleccionado.");
     return;
   }
 
